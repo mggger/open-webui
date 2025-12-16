@@ -11,19 +11,21 @@
 
 	const dispatch = createEventDispatcher();
 
-	import { createNewFeedback, getFeedbackById, updateFeedbackById } from '$lib/apis/evaluations';
-	import { getChatById } from '$lib/apis/chats';
-	import { generateTags } from '$lib/apis';
+import { createNewFeedback, getFeedbackById, updateFeedbackById } from '$lib/apis/evaluations';
+import { getChatById } from '$lib/apis/chats';
+import { downloadChatAsPDF } from '$lib/apis/utils';
+import { generateTags } from '$lib/apis';
 
-	import {
-		audioQueue,
-		config,
-		models,
-		settings,
-		temporaryChatEnabled,
-		TTSWorker,
-		user
-	} from '$lib/stores';
+import {
+	audioQueue,
+	config,
+	models,
+	chatTitle,
+	settings,
+	temporaryChatEnabled,
+	TTSWorker,
+	user
+} from '$lib/stores';
 	import { synthesizeOpenAISpeech } from '$lib/apis/audio';
 	import { imageGenerations } from '$lib/apis/images';
 	import {
@@ -166,13 +168,14 @@
 
 	let messageIndexEdit = false;
 
-	let speaking = false;
-	let speakingIdx: number | undefined;
+let speaking = false;
+let speakingIdx: number | undefined;
 
-	let loadingSpeech = false;
-	let generatingImage = false;
+let loadingSpeech = false;
+let generatingImage = false;
+let exportingPdf = false;
 
-	let showRateComment = false;
+let showRateComment = false;
 
 	const copyToClipboard = async (text) => {
 		text = removeAllDetails(text);
@@ -536,6 +539,164 @@
 		deleteMessage(message.id);
 	};
 
+	const sanitizeFileName = (name: string) => {
+		if (!name) return 'response';
+		return name.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 100) || 'response';
+	};
+
+	const downloadResponsePdf = async () => {
+		if (exportingPdf) return;
+		exportingPdf = true;
+
+		const title = ($chatTitle ?? '').trim() || 'response';
+		const safeFileName = sanitizeFileName(title);
+		const contentElement = document.getElementById(`response-content-container-${message.id}`);
+		let exported = false;
+
+		try {
+			await tick();
+			if (!contentElement) {
+				throw new Error('Missing content element');
+			}
+
+			let wrapper: HTMLDivElement | null = null;
+			const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
+				import('jspdf'),
+				import('html2canvas-pro')
+			]);
+
+			const isDarkMode = document.documentElement.classList.contains('dark');
+			const virtualWidth = 800;
+
+			try {
+				wrapper = document.createElement('div');
+				wrapper.style.width = `${virtualWidth}px`;
+				wrapper.style.position = 'absolute';
+				wrapper.style.left = '-9999px';
+				wrapper.style.top = '0';
+				wrapper.style.backgroundColor = isDarkMode ? '#000' : '#fff';
+				wrapper.classList.add('text-black');
+				wrapper.classList.add('dark:text-white');
+
+				const header = document.createElement('div');
+				header.style.padding = '16px 20px 10px';
+				header.style.fontSize = '18px';
+				header.style.fontWeight = '600';
+				header.textContent = title;
+				wrapper.appendChild(header);
+
+				const clonedElement = contentElement.cloneNode(true) as HTMLElement;
+				clonedElement.style.width = `${virtualWidth}px`;
+				clonedElement.style.padding = '0 20px 20px';
+				wrapper.appendChild(clonedElement);
+
+				document.body.appendChild(wrapper);
+				await new Promise((r) => setTimeout(r, 80));
+
+				const canvas = await html2canvas(wrapper, {
+					backgroundColor: isDarkMode ? '#000' : '#fff',
+					useCORS: true,
+					scale: 2
+				});
+
+				document.body.removeChild(wrapper);
+
+				const pdf = new jsPDF('p', 'mm', 'a4');
+				const pageWidthMM = 210;
+				const pageHeightMM = 297;
+				const pxPerPDFMM = canvas.width / pageWidthMM;
+				const pagePixelHeight = Math.floor(pxPerPDFMM * pageHeightMM);
+
+				let offsetY = 0;
+				let page = 0;
+
+				while (offsetY < canvas.height) {
+					const sliceHeight = Math.min(pagePixelHeight, canvas.height - offsetY);
+					const pageCanvas = document.createElement('canvas');
+					pageCanvas.width = canvas.width;
+					pageCanvas.height = sliceHeight;
+
+					const ctx = pageCanvas.getContext('2d');
+					if (!ctx) {
+						throw new Error('Failed to get canvas context');
+					}
+					ctx.drawImage(
+						canvas,
+						0,
+						offsetY,
+						canvas.width,
+						sliceHeight,
+						0,
+						0,
+						canvas.width,
+						sliceHeight
+					);
+
+					const imgData = pageCanvas.toDataURL('image/jpeg', 0.8);
+					const imgHeightMM = (sliceHeight * pageWidthMM) / canvas.width;
+
+					if (page > 0) pdf.addPage();
+
+					if (isDarkMode) {
+						pdf.setFillColor(0, 0, 0);
+						pdf.rect(0, 0, pageWidthMM, pageHeightMM, 'F');
+					}
+
+					pdf.addImage(imgData, 'JPEG', 0, 0, pageWidthMM, imgHeightMM);
+
+					offsetY += sliceHeight;
+					page++;
+				}
+
+				pdf.save(`${safeFileName}-response.pdf`);
+				exported = true;
+			} finally {
+				if (wrapper && wrapper.parentNode) {
+					wrapper.parentNode.removeChild(wrapper);
+				}
+			}
+		} catch (error) {
+			console.error('Error generating PDF via canvas', error);
+		}
+
+		if (!exported) {
+			try {
+				const token = localStorage?.token;
+				if (!token) {
+					throw new Error('Missing auth token');
+				}
+
+				const blob = await downloadChatAsPDF(token, title, [
+					{
+						role: message.role,
+						content: removeAllDetails(message.content),
+						timestamp: message.timestamp,
+						model: message.model
+					}
+				]);
+
+				if (blob) {
+					const url = window.URL.createObjectURL(blob);
+					const anchor = document.createElement('a');
+					anchor.href = url;
+					anchor.download = `${safeFileName}-response.pdf`;
+					document.body.appendChild(anchor);
+					anchor.click();
+					window.URL.revokeObjectURL(url);
+					anchor.remove();
+					exported = true;
+				} else {
+					throw new Error('Missing PDF blob');
+				}
+			} catch (error) {
+				console.error('Error exporting PDF via API', error);
+				toast.error('Failed to export PDF');
+			}
+		}
+
+		exportingPdf = false;
+	};
+
 	$: if (!edit) {
 		(async () => {
 			await tick();
@@ -768,7 +929,7 @@
 						<div
 							bind:this={contentContainerElement}
 							class="w-full flex flex-col relative {edit ? 'hidden' : ''}"
-							id="response-content-container"
+							id={`response-content-container-${message.id}`}
 						>
 							{#if message.content === '' && !message.error && ((model?.info?.meta?.capabilities?.status_updates ?? true) ? (message?.statusHistory ?? [...(message?.status ? [message?.status] : [])]).length === 0 || (message?.statusHistory?.at(-1)?.hidden ?? false) : true)}
 								<Skeleton />
@@ -995,6 +1156,35 @@
 												stroke-linecap="round"
 												stroke-linejoin="round"
 												d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"
+											/>
+										</svg>
+									</button>
+								</Tooltip>
+
+								<Tooltip content={$i18n.t('PDF document (.pdf)')} placement="bottom">
+									<button
+										aria-label={$i18n.t('PDF document (.pdf)')}
+										class="{isLastMessage || ($settings?.highContrastMode ?? false)
+											? 'visible'
+											: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition disabled:cursor-progress disabled:opacity-60"
+										on:click={() => {
+											downloadResponsePdf();
+										}}
+										disabled={exportingPdf}
+									>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											fill="none"
+											viewBox="0 0 24 24"
+											stroke-width="2.3"
+											stroke="currentColor"
+											class="w-4 h-4"
+											aria-hidden="true"
+										>
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												d="M19.5 14.25V9.621a1.5 1.5 0 0 0-.439-1.06l-4.122-4.122A1.5 1.5 0 0 0 13.879 4H8.25A2.25 2.25 0 0 0 6 6.25v11.5A2.25 2.25 0 0 0 8.25 20h7.5A2.25 2.25 0 0 0 18 17.75M12 11.25v5.25m0 0 2.25-2.25M12 16.5l-2.25-2.25"
 											/>
 										</svg>
 									</button>

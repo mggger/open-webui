@@ -11,21 +11,21 @@
 
 	const dispatch = createEventDispatcher();
 
-import { createNewFeedback, getFeedbackById, updateFeedbackById } from '$lib/apis/evaluations';
-import { getChatById } from '$lib/apis/chats';
-import { downloadChatAsPDF } from '$lib/apis/utils';
-import { generateTags } from '$lib/apis';
+	import { createNewFeedback, getFeedbackById, updateFeedbackById } from '$lib/apis/evaluations';
+	import { getChatById } from '$lib/apis/chats';
+	import { downloadChatAsPDF } from '$lib/apis/utils';
+	import { generateTags } from '$lib/apis';
 
-import {
-	audioQueue,
-	config,
-	models,
-	chatTitle,
-	settings,
-	temporaryChatEnabled,
-	TTSWorker,
-	user
-} from '$lib/stores';
+	import {
+		audioQueue,
+		config,
+		models,
+		chatTitle,
+		settings,
+		temporaryChatEnabled,
+		TTSWorker,
+		user
+	} from '$lib/stores';
 	import { synthesizeOpenAISpeech } from '$lib/apis/audio';
 	import { imageGenerations } from '$lib/apis/images';
 	import {
@@ -64,6 +64,8 @@ import {
 	import RegenerateMenu from './ResponseMessage/RegenerateMenu.svelte';
 	import StatusHistory from './ResponseMessage/StatusHistory.svelte';
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
+
+	const pdfBackground = '/assets/images/pdf_background.png';
 
 	interface MessageType {
 		id: string;
@@ -575,19 +577,20 @@ let showRateComment = false;
 				wrapper.style.left = '-9999px';
 				wrapper.style.top = '0';
 				wrapper.style.backgroundColor = isDarkMode ? '#000' : '#fff';
+				wrapper.style.paddingTop = '300px'; // push content down
+				if (pdfBackground) {
+					wrapper.style.backgroundImage = `url(${pdfBackground})`;
+					wrapper.style.backgroundSize = 'cover';
+					wrapper.style.backgroundRepeat = 'no-repeat';
+					wrapper.style.backgroundPosition = 'center top';
+				}
 				wrapper.classList.add('text-black');
 				wrapper.classList.add('dark:text-white');
-
-				const header = document.createElement('div');
-				header.style.padding = '16px 20px 10px';
-				header.style.fontSize = '18px';
-				header.style.fontWeight = '600';
-				header.textContent = title;
-				wrapper.appendChild(header);
 
 				const clonedElement = contentElement.cloneNode(true) as HTMLElement;
 				clonedElement.style.width = `${virtualWidth}px`;
 				clonedElement.style.padding = '0 20px 20px';
+				clonedElement.style.marginTop = '0';
 				wrapper.appendChild(clonedElement);
 
 				document.body.appendChild(wrapper);
@@ -668,10 +671,10 @@ let showRateComment = false;
 
 				const blob = await downloadChatAsPDF(token, title, [
 					{
-						role: message.role,
+						role: '',
 						content: removeAllDetails(message.content),
-						timestamp: message.timestamp,
-						model: message.model
+						timestamp: null,
+						model: ''
 					}
 				]);
 

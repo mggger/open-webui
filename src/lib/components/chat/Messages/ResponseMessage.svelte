@@ -155,11 +155,12 @@
 	export let editCodeBlock = true;
 	export let topPadding = false;
 
-	let citationsElement: HTMLDivElement;
+let citationsElement: HTMLDivElement;
 
-	let contentContainerElement: HTMLDivElement;
-	let buttonsContainerElement: HTMLDivElement;
-	let showDeleteConfirm = false;
+let contentContainerElement: HTMLDivElement;
+let markdownWrapperElement: HTMLDivElement;
+let buttonsContainerElement: HTMLDivElement;
+let showDeleteConfirm = false;
 
 	let model = null;
 	$: model = $models.find((m) => m.id === message.model);
@@ -552,7 +553,10 @@ let showRateComment = false;
 
 		const title = ($chatTitle ?? '').trim() || 'response';
 		const safeFileName = sanitizeFileName(title);
-		const contentElement = document.getElementById(`response-content-container-${message.id}`);
+		const contentElement =
+			markdownWrapperElement ??
+			document.getElementById(`response-markdown-wrapper-${message.id}`) ??
+			document.getElementById(`response-content-container-${message.id}`);
 		let exported = false;
 
 		try {
@@ -577,7 +581,7 @@ let showRateComment = false;
 				wrapper.style.left = '-9999px';
 				wrapper.style.top = '0';
 				wrapper.style.backgroundColor = isDarkMode ? '#000' : '#fff';
-				wrapper.style.paddingTop = '300px'; // push content down
+				wrapper.style.paddingTop = '350px'; // push content down
 				if (pdfBackground) {
 					wrapper.style.backgroundImage = `url(${pdfBackground})`;
 					wrapper.style.backgroundSize = 'cover';
@@ -823,7 +827,11 @@ let showRateComment = false;
 			</Name>
 
 			<div>
-				<div class="chat-{message.role} w-full min-w-full markdown-prose">
+				<div
+					class="chat-{message.role} w-full min-w-full markdown-prose"
+					bind:this={markdownWrapperElement}
+					id={`response-markdown-wrapper-${message.id}`}
+				>
 					<div>
 						{#if model?.info?.meta?.capabilities?.status_updates ?? true}
 							<StatusHistory statusHistory={message?.statusHistory} />

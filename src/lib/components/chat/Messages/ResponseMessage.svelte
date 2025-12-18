@@ -655,8 +655,9 @@ let showRateComment = false;
 				const pageHeightMM = 297;
 				const pxPerPDFMM = canvas.width / pageWidthMM;
 				const cssToCanvasScale = canvas.width / virtualWidth;
-				const bottomMarginPx = Math.max(Math.round(20 * cssToCanvasScale), 0);
-				const overlapPx = Math.max(Math.round(8 * cssToCanvasScale), 0);
+				const bottomMarginPx = Math.max(Math.round(24 * cssToCanvasScale), 0);
+				// Avoid overlap to prevent duplicated lines across pages; rely on padding instead
+				const overlapPx = 0;
 				const pagePixelHeight = Math.max(Math.floor(pxPerPDFMM * pageHeightMM) - bottomMarginPx, 50);
 
 				let offsetY = 0;

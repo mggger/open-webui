@@ -661,6 +661,23 @@ let showRateComment = false;
 					scale: captureScale
 				});
 
+				// Measure content while the wrapper is still in the DOM so we can trim empty trailing space
+				const wrapperRect = wrapper.getBoundingClientRect();
+				const blockBreaks = Array.from(
+					clonedElement.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6,blockquote,pre,table,ul,ol')
+				)
+					.map((el) => {
+						const rect = el.getBoundingClientRect();
+						return (rect.bottom - wrapperRect.top) * captureScale;
+					})
+					.filter((v) => v > 0)
+					.sort((a, b) => a - b);
+
+				const contentBottomPx = Math.max(
+					(clonedElement.getBoundingClientRect().bottom - wrapperRect.top) * captureScale,
+					Math.max(...blockBreaks, 0)
+				);
+
 				document.body.removeChild(wrapper);
 
 				const pdf = new jsPDF('p', 'mm', 'a4');
@@ -672,17 +689,7 @@ let showRateComment = false;
 				// Avoid overlap to prevent duplicated lines across pages; rely on padding instead
 				const overlapPx = 0;
 				const pagePixelHeight = Math.max(Math.floor(pxPerPDFMM * pageHeightMM) - bottomMarginPx, 50);
-
-				const wrapperRect = wrapper.getBoundingClientRect();
-				const blockBreaks = Array.from(
-					clonedElement.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6,blockquote,pre,table,ul,ol')
-				)
-					.map((el) => {
-						const rect = el.getBoundingClientRect();
-						return (rect.bottom - wrapperRect.top) * captureScale;
-					})
-					.filter((v) => v > 0)
-					.sort((a, b) => a - b);
+				const totalHeight = Math.min(canvas.height, Math.max(Math.ceil(contentBottomPx + bottomMarginPx), 1));
 
 				const findNextCut = (startY: number) => {
 					const target = startY + pagePixelHeight;
@@ -719,8 +726,8 @@ let showRateComment = false;
 				let offsetY = 0;
 				let page = 0;
 
-				while (offsetY < canvas.height) {
-					const remainingHeight = canvas.height - offsetY;
+				while (offsetY < totalHeight) {
+					const remainingHeight = totalHeight - offsetY;
 					const nextCut = findNextCut(offsetY);
 					const sliceHeight = Math.min(
 						pagePixelHeight,
@@ -754,7 +761,7 @@ let showRateComment = false;
 
 					if (page > 0) pdf.addPage();
 
-					if (bgDataUrl) {
+					if (page === 0 && bgDataUrl) {
 						pdf.addImage(bgDataUrl, 'PNG', 0, 0, pageWidthMM, pageHeightMM);
 					} else {
 						if (isDarkMode) {

@@ -28,7 +28,7 @@
 
 {#if history && history.length > 0}
 	{#if status?.hidden !== true}
-		<div class="text-sm flex flex-col w-full">
+		<div class="text-sm flex flex-col w-full" data-export-ignore="true">
 			<button
 				class="w-full"
 				on:click={() => {

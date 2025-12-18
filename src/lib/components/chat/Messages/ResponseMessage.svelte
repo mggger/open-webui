@@ -573,6 +573,22 @@ let showRateComment = false;
 
 			const isDarkMode = document.documentElement.classList.contains('dark');
 			const virtualWidth = 800;
+			let bgDataUrl: string | null = null;
+
+			if (pdfBackground) {
+				try {
+					const res = await fetch(pdfBackground);
+					const blob = await res.blob();
+					bgDataUrl = await new Promise((resolve, reject) => {
+						const reader = new FileReader();
+						reader.onload = () => resolve(reader.result as string);
+						reader.onerror = reject;
+						reader.readAsDataURL(blob);
+					});
+				} catch (err) {
+					console.warn('Unable to load PDF background', err);
+				}
+			}
 
 			try {
 				wrapper = document.createElement('div');
@@ -581,7 +597,10 @@ let showRateComment = false;
 				wrapper.style.left = '-9999px';
 				wrapper.style.top = '0';
 				wrapper.style.backgroundColor = isDarkMode ? '#000' : '#fff';
-				wrapper.style.paddingTop = '350px'; // push content down
+				// Keep top padding so logo/background has breathing room
+				wrapper.style.paddingTop = '350px';
+				// Small bottom padding to avoid clipping at page splits
+				wrapper.style.paddingBottom = '50px';
 				if (pdfBackground) {
 					wrapper.style.backgroundImage = `url(${pdfBackground})`;
 					wrapper.style.backgroundSize = 'cover';
@@ -592,6 +611,8 @@ let showRateComment = false;
 				wrapper.classList.add('dark:text-white');
 
 				const clonedElement = contentElement.cloneNode(true) as HTMLElement;
+				// Remove elements flagged to skip exporting (status history, citations, etc.)
+				clonedElement.querySelectorAll('[data-export-ignore="true"]').forEach((el) => el.remove());
 				clonedElement.style.width = `${virtualWidth}px`;
 				clonedElement.style.padding = '0 20px 20px';
 				clonedElement.style.marginTop = '0';
@@ -644,9 +665,16 @@ let showRateComment = false;
 
 					if (page > 0) pdf.addPage();
 
-					if (isDarkMode) {
-						pdf.setFillColor(0, 0, 0);
-						pdf.rect(0, 0, pageWidthMM, pageHeightMM, 'F');
+					if (bgDataUrl) {
+						pdf.addImage(bgDataUrl, 'PNG', 0, 0, pageWidthMM, pageHeightMM);
+					} else {
+						if (isDarkMode) {
+							pdf.setFillColor(0, 0, 0);
+							pdf.rect(0, 0, pageWidthMM, pageHeightMM, 'F');
+						} else {
+							pdf.setFillColor(255, 255, 255);
+							pdf.rect(0, 0, pageWidthMM, pageHeightMM, 'F');
+						}
 					}
 
 					pdf.addImage(imgData, 'JPEG', 0, 0, pageWidthMM, imgHeightMM);

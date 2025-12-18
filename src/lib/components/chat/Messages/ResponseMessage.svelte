@@ -571,6 +571,7 @@ let showRateComment = false;
 			import('html2canvas-pro')
 		]);
 
+		const captureScale = 2;
 		const isDarkMode = document.documentElement.classList.contains('dark');
 		const virtualWidth = 800;
 		let bgDataUrl: string | null = null;
@@ -657,7 +658,7 @@ let showRateComment = false;
 				const canvas = await html2canvas(wrapper, {
 					backgroundColor: isDarkMode ? '#000' : '#fff',
 					useCORS: true,
-					scale: 2
+					scale: captureScale
 				});
 
 				document.body.removeChild(wrapper);
@@ -672,12 +673,42 @@ let showRateComment = false;
 				const overlapPx = 0;
 				const pagePixelHeight = Math.max(Math.floor(pxPerPDFMM * pageHeightMM) - bottomMarginPx, 50);
 
+				const wrapperRect = wrapper.getBoundingClientRect();
+				const blockBreaks = Array.from(
+					clonedElement.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6,blockquote,pre,table,ul,ol')
+				)
+					.map((el) => {
+						const rect = el.getBoundingClientRect();
+						return (rect.bottom - wrapperRect.top) * captureScale;
+					})
+					.filter((v) => v > 0)
+					.sort((a, b) => a - b);
+
+				const findNextCut = (startY: number) => {
+					const target = startY + pagePixelHeight;
+					const windowPx = 140 * captureScale; // allow some wiggle room to find a neat break
+					const minAdvance = 120 * captureScale; // don't cut too close to the start
+
+					const candidates = blockBreaks.filter(
+						(pos) => pos > startY + minAdvance && pos <= target + windowPx
+					);
+
+					if (candidates.length > 0) {
+						// pick the candidate closest to the target height
+						candidates.sort((a, b) => Math.abs(a - target) - Math.abs(b - target));
+						return Math.max(candidates[0], startY + 40); // safety to keep progress
+					}
+
+					return target;
+				};
+
 				let offsetY = 0;
 				let page = 0;
 
 				while (offsetY < canvas.height) {
 					const remainingHeight = canvas.height - offsetY;
-					const sliceHeight = Math.min(pagePixelHeight, remainingHeight);
+					const nextCut = findNextCut(offsetY);
+					const sliceHeight = Math.min(pagePixelHeight, remainingHeight, nextCut - offsetY);
 					const isLastPage = remainingHeight <= pagePixelHeight;
 					const step = isLastPage ? remainingHeight : Math.max(sliceHeight - overlapPx, 32);
 					const pageCanvas = document.createElement('canvas');

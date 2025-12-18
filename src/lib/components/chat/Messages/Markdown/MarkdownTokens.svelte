@@ -316,26 +316,28 @@
 			</ul>
 		{/if}
 	{:else if token.type === 'details'}
+	<div data-export-ignore={token?.attributes?.type === 'reasoning' ? 'true' : undefined}>
 		<Collapsible
-			title={token.summary}
-			open={$settings?.expandDetails ?? false}
-			attributes={token?.attributes}
-			className="w-full space-y-1"
-			dir="auto"
-		>
-			<div class=" mb-1.5" slot="content">
-				<svelte:self
-					id={`${id}-${tokenIdx}-d`}
-					tokens={marked.lexer(decode(token.text))}
-					attributes={token?.attributes}
-					{done}
-					{editCodeBlock}
-					{onTaskClick}
-					{sourceIds}
-					{onSourceClick}
-				/>
-			</div>
-		</Collapsible>
+				title={token.summary}
+				open={$settings?.expandDetails ?? false}
+				attributes={token?.attributes}
+				className="w-full space-y-1"
+				dir="auto"
+			>
+				<div class=" mb-1.5" slot="content">
+					<svelte:self
+						id={`${id}-${tokenIdx}-d`}
+						tokens={marked.lexer(decode(token.text))}
+						attributes={token?.attributes}
+						{done}
+						{editCodeBlock}
+						{onTaskClick}
+						{sourceIds}
+						{onSourceClick}
+					/>
+				</div>
+			</Collapsible>
+	</div>
 	{:else if token.type === 'html'}
 		<HtmlToken {id} {token} {onSourceClick} />
 	{:else if token.type === 'iframe'}

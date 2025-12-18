@@ -627,6 +627,18 @@ let showRateComment = false;
 				}
 				wrapper.classList.add('text-black');
 				wrapper.classList.add('dark:text-white');
+				wrapper.classList.add('pdf-export-snapshot');
+
+				// Normalize typography and list spacing specifically for PDF captures
+				const style = document.createElement('style');
+				style.textContent = `
+					.pdf-export-snapshot { font-family: "Helvetica Neue", Arial, sans-serif; line-height: 1.6; }
+					.pdf-export-snapshot p { margin: 10px 0; }
+					.pdf-export-snapshot ul, .pdf-export-snapshot ol { padding-left: 24px; margin: 8px 0; list-style-position: outside; }
+					.pdf-export-snapshot li { margin: 6px 0; padding-left: 2px; }
+					.pdf-export-snapshot h1, .pdf-export-snapshot h2, .pdf-export-snapshot h3, .pdf-export-snapshot h4, .pdf-export-snapshot h5, .pdf-export-snapshot h6 { margin: 16px 0 10px; }
+				`;
+				wrapper.appendChild(style);
 
 				const clonedElement = contentElement.cloneNode(true) as HTMLElement;
 				// Remove elements flagged to skip exporting (status history, citations, etc.)
@@ -667,7 +679,7 @@ let showRateComment = false;
 					const remainingHeight = canvas.height - offsetY;
 					const sliceHeight = Math.min(pagePixelHeight, remainingHeight);
 					const isLastPage = remainingHeight <= pagePixelHeight;
-					const step = isLastPage ? remainingHeight : Math.max(sliceHeight - overlapPx, 10);
+					const step = isLastPage ? remainingHeight : Math.max(sliceHeight - overlapPx, 32);
 					const pageCanvas = document.createElement('canvas');
 					pageCanvas.width = canvas.width;
 					pageCanvas.height = sliceHeight;

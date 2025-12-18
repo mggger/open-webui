@@ -631,6 +631,9 @@ let showRateComment = false;
 				const clonedElement = contentElement.cloneNode(true) as HTMLElement;
 				// Remove elements flagged to skip exporting (status history, citations, etc.)
 				clonedElement.querySelectorAll('[data-export-ignore="true"]').forEach((el) => el.remove());
+				// Strip hidden/thinking details and inline source chips from the PDF capture
+				clonedElement.querySelectorAll('details').forEach((el) => el.remove());
+				clonedElement.querySelectorAll('[data-source-token="true"]').forEach((el) => el.remove());
 				clonedElement.style.width = `${virtualWidth}px`;
 				clonedElement.style.padding = '0 20px 20px';
 				clonedElement.style.marginTop = '0';
@@ -660,8 +663,10 @@ let showRateComment = false;
 				let page = 0;
 
 				while (offsetY < canvas.height) {
-					const sliceHeight = Math.min(pagePixelHeight, canvas.height - offsetY);
-					const step = Math.max(sliceHeight - overlapPx, 10);
+					const remainingHeight = canvas.height - offsetY;
+					const sliceHeight = Math.min(pagePixelHeight, remainingHeight);
+					const isLastPage = remainingHeight <= pagePixelHeight;
+					const step = isLastPage ? remainingHeight : Math.max(sliceHeight - overlapPx, 10);
 					const pageCanvas = document.createElement('canvas');
 					pageCanvas.width = canvas.width;
 					pageCanvas.height = sliceHeight;

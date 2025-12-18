@@ -686,17 +686,31 @@ let showRateComment = false;
 
 				const findNextCut = (startY: number) => {
 					const target = startY + pagePixelHeight;
-					const windowPx = 140 * captureScale; // allow some wiggle room to find a neat break
-					const minAdvance = 120 * captureScale; // don't cut too close to the start
+					const minAdvance = 200 * captureScale; // keep distance from previous cut
+					const windowBefore = 400 * captureScale; // prefer breaks just before target
+					const windowAfter = 300 * captureScale; // otherwise, allow a bit after
 
-					const candidates = blockBreaks.filter(
-						(pos) => pos > startY + minAdvance && pos <= target + windowPx
+					const candidatesAfter = blockBreaks.filter(
+						(pos) => pos > target && pos <= target + windowAfter
+					);
+					const candidatesBefore = blockBreaks.filter(
+						(pos) => pos > startY + minAdvance && pos <= target
 					);
 
-					if (candidates.length > 0) {
-						// pick the candidate closest to the target height
-						candidates.sort((a, b) => Math.abs(a - target) - Math.abs(b - target));
-						return Math.max(candidates[0], startY + 40); // safety to keep progress
+					if (candidatesBefore.length > 0) {
+						const bestBefore = candidatesBefore.reduce((best, pos) =>
+							target - pos < target - best ? pos : best
+						);
+						if (target - bestBefore <= windowBefore) {
+							return bestBefore;
+						}
+					}
+
+					if (candidatesAfter.length > 0) {
+						const bestAfter = candidatesAfter.reduce((best, pos) =>
+							pos - target < best - target ? pos : best
+						);
+						return bestAfter;
 					}
 
 					return target;
@@ -708,9 +722,13 @@ let showRateComment = false;
 				while (offsetY < canvas.height) {
 					const remainingHeight = canvas.height - offsetY;
 					const nextCut = findNextCut(offsetY);
-					const sliceHeight = Math.min(pagePixelHeight, remainingHeight, nextCut - offsetY);
+					const sliceHeight = Math.min(
+						pagePixelHeight,
+						remainingHeight,
+						Math.max(nextCut - offsetY, 120 * captureScale)
+					);
 					const isLastPage = remainingHeight <= pagePixelHeight;
-					const step = isLastPage ? remainingHeight : Math.max(sliceHeight - overlapPx, 32);
+					const step = isLastPage ? remainingHeight : sliceHeight;
 					const pageCanvas = document.createElement('canvas');
 					pageCanvas.width = canvas.width;
 					pageCanvas.height = sliceHeight;

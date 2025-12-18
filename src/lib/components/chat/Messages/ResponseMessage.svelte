@@ -566,25 +566,43 @@ let showRateComment = false;
 			}
 
 			let wrapper: HTMLDivElement | null = null;
-			const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
-				import('jspdf'),
-				import('html2canvas-pro')
-			]);
+		const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
+			import('jspdf'),
+			import('html2canvas-pro')
+		]);
 
-			const isDarkMode = document.documentElement.classList.contains('dark');
-			const virtualWidth = 800;
-			let bgDataUrl: string | null = null;
+		const isDarkMode = document.documentElement.classList.contains('dark');
+		const virtualWidth = 800;
+		let bgDataUrl: string | null = null;
+		let backgroundHeight = 320;
 
-			if (pdfBackground) {
-				try {
-					const res = await fetch(pdfBackground);
-					const blob = await res.blob();
+		if (pdfBackground) {
+			try {
+				const res = await fetch(pdfBackground);
+				const blob = await res.blob();
 					bgDataUrl = await new Promise((resolve, reject) => {
 						const reader = new FileReader();
 						reader.onload = () => resolve(reader.result as string);
 						reader.onerror = reject;
 						reader.readAsDataURL(blob);
 					});
+
+					// Figure out a stable height for the header background so it will not stretch on tall pages
+					try {
+						const size = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+							const img = new Image();
+							img.onload = () => resolve({ width: img.width, height: img.height });
+							img.onerror = reject;
+							img.src = bgDataUrl as string;
+						});
+
+						if (size.width > 0 && size.height > 0) {
+							backgroundHeight = Math.round((virtualWidth * size.height) / size.width);
+							backgroundHeight = Math.min(Math.max(backgroundHeight, 260), 420); // clamp to keep padding reasonable
+						}
+					} catch (err) {
+						console.warn('Unable to measure PDF background', err);
+					}
 				} catch (err) {
 					console.warn('Unable to load PDF background', err);
 				}
@@ -598,14 +616,14 @@ let showRateComment = false;
 				wrapper.style.top = '0';
 				wrapper.style.backgroundColor = isDarkMode ? '#000' : '#fff';
 				// Keep top padding so logo/background has breathing room
-				wrapper.style.paddingTop = '350px';
+				wrapper.style.paddingTop = `${backgroundHeight + 50}px`;
 				// Small bottom padding to avoid clipping at page splits
 				wrapper.style.paddingBottom = '50px';
 				if (pdfBackground) {
 					wrapper.style.backgroundImage = `url(${pdfBackground})`;
-					wrapper.style.backgroundSize = 'cover';
+					wrapper.style.backgroundSize = `${virtualWidth}px auto`;
 					wrapper.style.backgroundRepeat = 'no-repeat';
-					wrapper.style.backgroundPosition = 'center top';
+					wrapper.style.backgroundPosition = 'center 20px';
 				}
 				wrapper.classList.add('text-black');
 				wrapper.classList.add('dark:text-white');
@@ -633,7 +651,9 @@ let showRateComment = false;
 				const pageWidthMM = 210;
 				const pageHeightMM = 297;
 				const pxPerPDFMM = canvas.width / pageWidthMM;
-				const pagePixelHeight = Math.floor(pxPerPDFMM * pageHeightMM);
+				const cssToCanvasScale = canvas.width / virtualWidth;
+				const bottomMarginPx = Math.max(Math.round(20 * cssToCanvasScale), 0);
+				const pagePixelHeight = Math.max(Math.floor(pxPerPDFMM * pageHeightMM) - bottomMarginPx, 50);
 
 				let offsetY = 0;
 				let page = 0;

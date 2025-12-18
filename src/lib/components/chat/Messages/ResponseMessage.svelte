@@ -653,6 +653,7 @@ let showRateComment = false;
 				const pxPerPDFMM = canvas.width / pageWidthMM;
 				const cssToCanvasScale = canvas.width / virtualWidth;
 				const bottomMarginPx = Math.max(Math.round(20 * cssToCanvasScale), 0);
+				const overlapPx = Math.max(Math.round(8 * cssToCanvasScale), 0);
 				const pagePixelHeight = Math.max(Math.floor(pxPerPDFMM * pageHeightMM) - bottomMarginPx, 50);
 
 				let offsetY = 0;
@@ -660,6 +661,7 @@ let showRateComment = false;
 
 				while (offsetY < canvas.height) {
 					const sliceHeight = Math.min(pagePixelHeight, canvas.height - offsetY);
+					const step = Math.max(sliceHeight - overlapPx, 10);
 					const pageCanvas = document.createElement('canvas');
 					pageCanvas.width = canvas.width;
 					pageCanvas.height = sliceHeight;
@@ -699,7 +701,7 @@ let showRateComment = false;
 
 					pdf.addImage(imgData, 'JPEG', 0, 0, pageWidthMM, imgHeightMM);
 
-					offsetY += sliceHeight;
+					offsetY += step;
 					page++;
 				}
 
@@ -882,7 +884,9 @@ let showRateComment = false;
 				>
 					<div>
 						{#if model?.info?.meta?.capabilities?.status_updates ?? true}
-							<StatusHistory statusHistory={message?.statusHistory} />
+							<div data-export-ignore="true">
+								<StatusHistory statusHistory={message?.statusHistory} />
+							</div>
 						{/if}
 
 						{#if message?.files && message.files?.filter((f) => f.type === 'image').length > 0}
@@ -1041,16 +1045,20 @@ let showRateComment = false;
 							{/if}
 
 							{#if (message?.sources || message?.citations) && (model?.info?.meta?.capabilities?.citations ?? true)}
-								<Citations
-									bind:this={citationsElement}
-									id={message?.id}
-									sources={message?.sources ?? message?.citations}
-									{readOnly}
-								/>
+								<div data-export-ignore="true">
+									<Citations
+										bind:this={citationsElement}
+										id={message?.id}
+										sources={message?.sources ?? message?.citations}
+										{readOnly}
+									/>
+								</div>
 							{/if}
 
 							{#if message.code_executions}
-								<CodeExecutions codeExecutions={message.code_executions} />
+								<div data-export-ignore="true">
+									<CodeExecutions codeExecutions={message.code_executions} />
+								</div>
 							{/if}
 						</div>
 					</div>

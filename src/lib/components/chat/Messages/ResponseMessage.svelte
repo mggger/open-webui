@@ -638,6 +638,12 @@ let showRateComment = false;
 					.pdf-export-snapshot ul, .pdf-export-snapshot ol { padding-left: 24px; margin: 8px 0; list-style-position: outside; }
 					.pdf-export-snapshot li { margin: 6px 0; padding-left: 2px; }
 					.pdf-export-snapshot h1, .pdf-export-snapshot h2, .pdf-export-snapshot h3, .pdf-export-snapshot h4, .pdf-export-snapshot h5, .pdf-export-snapshot h6 { margin: 16px 0 10px; }
+					.pdf-export-snapshot table { width: 100%; border-collapse: collapse; margin: 12px 0; table-layout: fixed; }
+					.pdf-export-snapshot th, .pdf-export-snapshot td { border: 1px solid rgba(0,0,0,0.12); padding: 8px 10px; vertical-align: top; word-break: break-word; overflow-wrap: anywhere; }
+					.pdf-export-snapshot thead th { background: rgba(0,0,0,0.04); }
+					.pdf-export-snapshot tr { break-inside: avoid; page-break-inside: avoid; }
+					.dark .pdf-export-snapshot th, .dark .pdf-export-snapshot td { border-color: rgba(255,255,255,0.18); }
+					.dark .pdf-export-snapshot thead th { background: rgba(255,255,255,0.08); }
 				`;
 				wrapper.appendChild(style);
 
@@ -663,9 +669,18 @@ let showRateComment = false;
 
 				// Measure content while the wrapper is still in the DOM so we can trim empty trailing space
 				const wrapperRect = wrapper.getBoundingClientRect();
-				const blockBreaks = Array.from(
+				const blockBreakElements = Array.from(
 					clonedElement.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6,blockquote,pre,table,ul,ol')
-				)
+				);
+				const blockBreaks = blockBreakElements
+					.filter((el) => !el.closest('table') || el.tagName.toLowerCase() === 'table')
+					.map((el) => {
+						const rect = el.getBoundingClientRect();
+						return (rect.bottom - wrapperRect.top) * captureScale;
+					})
+					.filter((v) => v > 0)
+					.sort((a, b) => a - b);
+				const rowBreaks = Array.from(clonedElement.querySelectorAll('tr'))
 					.map((el) => {
 						const rect = el.getBoundingClientRect();
 						return (rect.bottom - wrapperRect.top) * captureScale;
@@ -675,7 +690,8 @@ let showRateComment = false;
 
 				const contentBottomPx = Math.max(
 					(clonedElement.getBoundingClientRect().bottom - wrapperRect.top) * captureScale,
-					Math.max(...blockBreaks, 0)
+					Math.max(...blockBreaks, 0),
+					Math.max(...rowBreaks, 0)
 				);
 
 				document.body.removeChild(wrapper);
@@ -691,18 +707,16 @@ let showRateComment = false;
 				const pagePixelHeight = Math.max(Math.floor(pxPerPDFMM * pageHeightMM) - bottomMarginPx, 50);
 				const totalHeight = Math.min(canvas.height, Math.max(Math.ceil(contentBottomPx + bottomMarginPx), 1));
 
-				const findNextCut = (startY: number) => {
-					const target = startY + pagePixelHeight;
-					const minAdvance = 200 * captureScale; // keep distance from previous cut
-					const windowBefore = 400 * captureScale; // prefer breaks just before target
-					const windowAfter = 300 * captureScale; // otherwise, allow a bit after
-
-					const candidatesAfter = blockBreaks.filter(
-						(pos) => pos > target && pos <= target + windowAfter
-					);
-					const candidatesBefore = blockBreaks.filter(
-						(pos) => pos > startY + minAdvance && pos <= target
-					);
+				const findCutFrom = (
+					breaks: number[],
+					startY: number,
+					target: number,
+					minAdvance: number,
+					windowBefore: number,
+					windowAfter: number
+				) => {
+					const candidatesAfter = breaks.filter((pos) => pos > target && pos <= target + windowAfter);
+					const candidatesBefore = breaks.filter((pos) => pos > startY + minAdvance && pos <= target);
 
 					if (candidatesBefore.length > 0) {
 						const bestBefore = candidatesBefore.reduce((best, pos) =>
@@ -720,7 +734,37 @@ let showRateComment = false;
 						return bestAfter;
 					}
 
-					return target;
+					return null;
+				};
+
+				const findNextCut = (startY: number) => {
+					const target = startY + pagePixelHeight;
+					const minAdvance = 200 * captureScale; // keep distance from previous cut
+					const windowBefore = 400 * captureScale; // prefer breaks just before target
+					const windowAfter = 300 * captureScale; // otherwise, allow a bit after
+					const rowWindowAfter = 800 * captureScale; // allow extra space to keep rows intact
+
+					const rowCut = findCutFrom(
+						rowBreaks,
+						startY,
+						target,
+						minAdvance,
+						windowBefore,
+						rowWindowAfter
+					);
+					if (rowCut !== null) {
+						return rowCut;
+					}
+
+					const blockCut = findCutFrom(
+						blockBreaks,
+						startY,
+						target,
+						minAdvance,
+						windowBefore,
+						windowAfter
+					);
+					return blockCut ?? target;
 				};
 
 				let offsetY = 0;

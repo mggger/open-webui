@@ -1550,7 +1550,9 @@
 		console.log('submitPrompt', userPrompt, $chatId);
 
 		let systemPromptOverride = null;
-		if (webSearchEnabled && userPrompt.includes('#do_search')) {
+		const hasDoSearchTag = /#do_search|#do_serachd/.test(userPrompt);
+		if (hasDoSearchTag) {
+			webSearchEnabled = true;
 			userPrompt = 'search for information regrading cyber incidents in the last 72 hours';
 			systemPromptOverride =
 				'Please organize it into a table and return it using the following structure:\n\n| Date of Incident | Breach Type | Affected Organization / Entity | Number of Affected Records | Description | Impact | Source URL |';

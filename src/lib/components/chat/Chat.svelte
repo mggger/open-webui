@@ -1549,6 +1549,13 @@
 	const submitPrompt = async (userPrompt, { _raw = false } = {}) => {
 		console.log('submitPrompt', userPrompt, $chatId);
 
+		let systemPromptOverride = null;
+		if (webSearchEnabled && userPrompt.includes('#do_search')) {
+			userPrompt = 'search for information regrading cyber incidents in the last 72 hours';
+			systemPromptOverride =
+				'Please organize it into a table and return it using the following structure:\n\n| Date of Incident | Breach Type | Affected Organization / Entity | Number of Affected Records | Description | Impact | Source URL |';
+		}
+
 		const _selectedModels = selectedModels.map((modelId) =>
 			$models.map((m) => m.id).includes(modelId) ? modelId : ''
 		);
@@ -1650,7 +1657,7 @@
 
 		saveSessionSelectedModels();
 
-		await sendMessage(history, userMessageId, { newChat: true });
+		await sendMessage(history, userMessageId, { newChat: true, systemPromptOverride });
 	};
 
 	const sendMessage = async (
@@ -1660,12 +1667,14 @@
 			messages = null,
 			modelId = null,
 			modelIdx = null,
-			newChat = false
+			newChat = false,
+			systemPromptOverride = null
 		}: {
 			messages?: any[] | null;
 			modelId?: string | null;
 			modelIdx?: number | null;
 			newChat?: boolean;
+			systemPromptOverride?: string | null;
 		} = {}
 	) => {
 		if (autoScroll) {
@@ -1761,7 +1770,8 @@
 							: createMessagesList(_history, responseMessageId),
 						_history,
 						responseMessageId,
-						_chatId
+						_chatId,
+						systemPromptOverride
 					);
 
 					if (chatEventEmitter) clearInterval(chatEventEmitter);
@@ -1816,7 +1826,14 @@
 		return features;
 	};
 
-	const sendMessageSocket = async (model, _messages, _history, responseMessageId, _chatId) => {
+	const sendMessageSocket = async (
+		model,
+		_messages,
+		_history,
+		responseMessageId,
+		_chatId,
+		systemPromptOverride = null
+	) => {
 		const responseMessage = _history.messages[responseMessageId];
 		const userMessage = _history.messages[responseMessage.parentId];
 
@@ -1866,11 +1883,14 @@
 			params?.stream_response ??
 			true;
 
+		const systemPromptBase = params?.system ?? $settings?.system ?? '';
+		const systemPrompt = [systemPromptBase, systemPromptOverride].filter(Boolean).join('\n\n');
+
 		let messages = [
-			params?.system || $settings.system
+			systemPrompt
 				? {
 						role: 'system',
-						content: `${params?.system ?? $settings?.system ?? ''}`
+						content: systemPrompt
 					}
 				: undefined,
 			..._messages.map((message) => ({

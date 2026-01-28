@@ -1550,7 +1550,7 @@
 		console.log('submitPrompt', userPrompt, $chatId);
 
 		let systemPromptOverride = null;
-		const hasDoSearchTag = /!do_serach/.test(userPrompt);
+		const hasDoSearchTag = /!do_search/.test(userPrompt);
 		if (hasDoSearchTag) {
 			webSearchEnabled = true;
 			userPrompt = 'search for information regrading cyber incidents in the last 72 hours';

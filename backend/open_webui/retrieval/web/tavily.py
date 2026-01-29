@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 
-import requests
+from tavily import TavilyClient
 from open_webui.retrieval.web.main import SearchResult, get_filtered_results
 from open_webui.env import SRC_LOG_LEVELS
 
@@ -26,16 +26,8 @@ def search_tavily(
     Returns:
         list[SearchResult]: A list of search results
     """
-    url = "https://api.tavily.com/search"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-    }
-    data = {"query": query, "max_results": count}
-    response = requests.post(url, headers=headers, json=data)
-    response.raise_for_status()
-
-    json_response = response.json()
+    tavily_client = TavilyClient(api_key=api_key)
+    json_response = tavily_client.search(query, max_results=count)
 
     results = json_response.get("results", [])
     if filter_list:

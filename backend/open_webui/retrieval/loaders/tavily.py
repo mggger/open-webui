@@ -1,9 +1,9 @@
-import requests
 import logging
 from typing import Iterator, List, Literal, Union
 
 from langchain_core.document_loaders import BaseLoader
 from langchain_core.documents import Document
+from tavily import TavilyClient
 from open_webui.env import SRC_LOG_LEVELS
 
 log = logging.getLogger(__name__)
@@ -50,44 +50,30 @@ class TavilyLoader(BaseLoader):
         self.urls = urls if isinstance(urls, list) else [urls]
         self.extract_depth = extract_depth
         self.continue_on_failure = continue_on_failure
-        self.api_url = "https://api.tavily.com/extract"
+        self._client = TavilyClient(api_key=self.api_key)
 
     def lazy_load(self) -> Iterator[Document]:
         """Extract and yield documents from the URLs using Tavily Extract API."""
-        batch_size = 20
-        for i in range(0, len(self.urls), batch_size):
-            batch_urls = self.urls[i : i + batch_size]
+        for url in self.urls:
             try:
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.api_key}",
-                }
-                # Use string for single URL, array for multiple URLs
-                urls_param = batch_urls[0] if len(batch_urls) == 1 else batch_urls
-                payload = {"urls": urls_param, "extract_depth": self.extract_depth}
-                # Make the API call
-                response = requests.post(self.api_url, headers=headers, json=payload)
-                response.raise_for_status()
-                response_data = response.json()
-                # Process successful results
+                response_data = self._client.extract(
+                    url,
+                    extract_depth=self.extract_depth,
+                )
                 for result in response_data.get("results", []):
-                    url = result.get("url", "")
+                    result_url = result.get("url", url)
                     content = result.get("raw_content", "")
                     if not content:
-                        log.warning(f"No content extracted from {url}")
+                        log.warning(f"No content extracted from {result_url}")
                         continue
-                    # Add URLs as metadata
-                    metadata = {"source": url}
-                    yield Document(
-                        page_content=content,
-                        metadata=metadata,
-                    )
+                    metadata = {"source": result_url}
+                    yield Document(page_content=content, metadata=metadata)
                 for failed in response_data.get("failed_results", []):
-                    url = failed.get("url", "")
+                    failed_url = failed.get("url", url)
                     error = failed.get("error", "Unknown error")
-                    log.error(f"Failed to extract content from {url}: {error}")
+                    log.error(f"Failed to extract content from {failed_url}: {error}")
             except Exception as e:
                 if self.continue_on_failure:
-                    log.error(f"Error extracting content from batch {batch_urls}: {e}")
+                    log.error(f"Error extracting content from {url}: {e}")
                 else:
                     raise e

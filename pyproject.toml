@@ -102,6 +102,7 @@ dependencies = [
 
     "pydub",
     "ddgs==9.9.2",
+    "tavily-python",
 
     "google-api-python-client",
     "google-auth-httplib2",

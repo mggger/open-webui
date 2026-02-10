@@ -25,6 +25,14 @@ def _preview(text: str, max_chars: int = 160) -> str:
     return f"{text[:max_chars]}..."
 
 
+def _json_preview(value: Any, max_chars: int = 400) -> str:
+    try:
+        rendered = json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        rendered = str(value)
+    return _preview(rendered, max_chars=max_chars)
+
+
 def _trim_text(text: str, max_chars: int = MAX_CONTENT_CHARS) -> str:
     if not text:
         return ""
@@ -158,11 +166,24 @@ async def _call_llm_json(
                 sorted(list(res.keys())),
             )
             raise RuntimeError(f"Deep search model response invalid: {detail}")
-    message = res.get("choices", [{}])[0].get("message", {}) if isinstance(res, dict) else {}
+    choices = res.get("choices", []) if isinstance(res, dict) else []
+    first_choice = choices[0] if isinstance(choices, list) and choices else {}
+    message = first_choice.get("message", {}) if isinstance(first_choice, dict) else {}
     if not isinstance(message, dict):
         message = {}
     message_content = message.get("content") or ""
     content = _normalize_content(message_content)
+    if not content.strip():
+        log.warning(
+            "deep_search.llm.empty_content status=%s choices=%s finish_reason=%r message_type=%s message_keys=%s first_choice_preview=%r response_preview=%r",
+            status_code,
+            len(choices) if isinstance(choices, list) else 0,
+            first_choice.get("finish_reason") if isinstance(first_choice, dict) else None,
+            type(message_content).__name__,
+            sorted(list(message.keys())) if isinstance(message, dict) else [],
+            _json_preview(first_choice),
+            _json_preview(res),
+        )
     parsed = _extract_json(content)
     log.debug(
         "deep_search.llm.parsed content_len=%s parsed=%s",

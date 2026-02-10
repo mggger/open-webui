@@ -11,7 +11,7 @@
 
 {#if !status?.hidden}
 	<div class="status-description flex items-center gap-2 py-0.5 w-full text-left">
-		{#if status?.action === 'web_search' && (status?.urls || status?.items)}
+		{#if (status?.action === 'web_search' || status?.action === 'deep_search') && (status?.urls || status?.items)}
 			<WebSearchResults {status}>
 				<div class="flex flex-col justify-center -space-y-0.5">
 					<div
@@ -48,7 +48,7 @@
 					})}
 				</div>
 			</div>
-		{:else if status?.action === 'web_search_queries_generated' && status?.queries}
+		{:else if (status?.action === 'web_search_queries_generated' || status?.action === 'deep_search_queries_generated') && status?.queries}
 			<div class="flex flex-col justify-center -space-y-0.5">
 				<div
 					class="{(done || status?.done) === false

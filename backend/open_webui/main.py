@@ -73,6 +73,7 @@ from open_webui.routers import (
     ollama,
     openai,
     retrieval,
+    deep_search,
     pipelines,
     tasks,
     auths,
@@ -290,6 +291,11 @@ from open_webui.config import (
     WEB_SEARCH_CONCURRENT_REQUESTS,
     WEB_SEARCH_TRUST_ENV,
     WEB_SEARCH_DOMAIN_FILTER_LIST,
+    ENABLE_DEEP_SEARCH,
+    DEEP_SEARCH_DEPTH,
+    DEEP_SEARCH_BREADTH,
+    DEEP_SEARCH_RESULT_COUNT,
+    DEEP_SEARCH_CONCURRENCY,
     OLLAMA_CLOUD_WEB_SEARCH_API_KEY,
     JINA_API_KEY,
     SEARCHAPI_API_KEY,
@@ -928,6 +934,11 @@ app.state.config.BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL = (
     BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL
 )
 app.state.config.BYPASS_WEB_SEARCH_WEB_LOADER = BYPASS_WEB_SEARCH_WEB_LOADER
+app.state.config.ENABLE_DEEP_SEARCH = ENABLE_DEEP_SEARCH
+app.state.config.DEEP_SEARCH_DEPTH = DEEP_SEARCH_DEPTH
+app.state.config.DEEP_SEARCH_BREADTH = DEEP_SEARCH_BREADTH
+app.state.config.DEEP_SEARCH_RESULT_COUNT = DEEP_SEARCH_RESULT_COUNT
+app.state.config.DEEP_SEARCH_CONCURRENCY = DEEP_SEARCH_CONCURRENCY
 
 app.state.config.ENABLE_GOOGLE_DRIVE_INTEGRATION = ENABLE_GOOGLE_DRIVE_INTEGRATION
 app.state.config.ENABLE_ONEDRIVE_INTEGRATION = ENABLE_ONEDRIVE_INTEGRATION
@@ -1372,6 +1383,7 @@ app.include_router(images.router, prefix="/api/v1/images", tags=["images"])
 
 app.include_router(audio.router, prefix="/api/v1/audio", tags=["audio"])
 app.include_router(retrieval.router, prefix="/api/v1/retrieval", tags=["retrieval"])
+app.include_router(deep_search.router, prefix="/api/v1/deep-search", tags=["deep-search"])
 
 app.include_router(configs.router, prefix="/api/v1/configs", tags=["configs"])
 
@@ -1850,6 +1862,7 @@ async def get_app_config(request: Request):
                     "enable_channels": app.state.config.ENABLE_CHANNELS,
                     "enable_notes": app.state.config.ENABLE_NOTES,
                     "enable_web_search": app.state.config.ENABLE_WEB_SEARCH,
+                    "enable_deep_search": app.state.config.ENABLE_DEEP_SEARCH,
                     "enable_code_execution": app.state.config.ENABLE_CODE_EXECUTION,
                     "enable_code_interpreter": app.state.config.ENABLE_CODE_INTERPRETER,
                     "enable_image_generation": app.state.config.ENABLE_IMAGE_GENERATION,

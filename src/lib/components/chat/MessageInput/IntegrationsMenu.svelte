@@ -17,6 +17,7 @@
 	import Wrench from '$lib/components/icons/Wrench.svelte';
 	import Sparkles from '$lib/components/icons/Sparkles.svelte';
 	import GlobeAlt from '$lib/components/icons/GlobeAlt.svelte';
+	import Search from '$lib/components/icons/Search.svelte';
 	import Photo from '$lib/components/icons/Photo.svelte';
 	import Terminal from '$lib/components/icons/Terminal.svelte';
 	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
@@ -35,6 +36,8 @@
 
 	export let showWebSearchButton = false;
 	export let webSearchEnabled = false;
+	export let showDeepSearchButton = false;
+	export let deepSearchEnabled = false;
 	export let showImageGenerationButton = false;
 	export let imageGenerationEnabled = false;
 	export let showCodeInterpreterButton = false;
@@ -219,6 +222,9 @@
 								class="flex w-full justify-between gap-2 items-center px-3 py-1.5 text-sm cursor-pointer rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50"
 								on:click={() => {
 									webSearchEnabled = !webSearchEnabled;
+									if (webSearchEnabled) {
+										deepSearchEnabled = false;
+									}
 								}}
 							>
 								<div class="flex-1 truncate">
@@ -234,6 +240,40 @@
 								<div class=" shrink-0">
 									<Switch
 										state={webSearchEnabled}
+										on:change={async (e) => {
+											const state = e.detail;
+											await tick();
+										}}
+									/>
+								</div>
+							</button>
+						</Tooltip>
+					{/if}
+
+					{#if showDeepSearchButton}
+						<Tooltip content={$i18n.t('Run deep research')} placement="top-start">
+							<button
+								class="flex w-full justify-between gap-2 items-center px-3 py-1.5 text-sm cursor-pointer rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50"
+								on:click={() => {
+									deepSearchEnabled = !deepSearchEnabled;
+									if (deepSearchEnabled) {
+										webSearchEnabled = false;
+									}
+								}}
+							>
+								<div class="flex-1 truncate">
+									<div class="flex flex-1 gap-2 items-center">
+										<div class="shrink-0">
+											<Search className="size-4" strokeWidth="1.5" />
+										</div>
+
+										<div class=" truncate">{$i18n.t('Deep Search')}</div>
+									</div>
+								</div>
+
+								<div class=" shrink-0">
+									<Switch
+										state={deepSearchEnabled}
 										on:change={async (e) => {
 											const state = e.detail;
 											await tick();

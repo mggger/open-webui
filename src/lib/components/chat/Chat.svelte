@@ -68,6 +68,7 @@
 		updateChatFolderIdById
 	} from '$lib/apis/chats';
 	import { generateOpenAIChatCompletion } from '$lib/apis/openai';
+	import { generateDeepSearchReport } from '$lib/apis/deep-search';
 	import { processWeb, processWebSearch, processYoutubeVideo } from '$lib/apis/retrieval';
 	import { getAndUpdateUserLocation, getUserSettings } from '$lib/apis/users';
 	import {
@@ -76,7 +77,8 @@
 		chatAction,
 		generateMoACompletion,
 		stopTask,
-		getTaskIdsByChatId
+		getTaskIdsByChatId,
+		generateTitle
 	} from '$lib/apis';
 	import { getTools } from '$lib/apis/tools';
 	import { uploadFile } from '$lib/apis/files';
@@ -136,6 +138,7 @@
 	let selectedFilterIds = [];
 	let imageGenerationEnabled = false;
 	let webSearchEnabled = false;
+	let deepSearchEnabled = false;
 	let codeInterpreterEnabled = false;
 
 	let showCommands = false;
@@ -173,6 +176,7 @@
 		selectedToolIds = [];
 		selectedFilterIds = [];
 		webSearchEnabled = false;
+		deepSearchEnabled = false;
 		imageGenerationEnabled = false;
 
 		const storageChatInput = sessionStorage.getItem(
@@ -196,6 +200,7 @@
 						selectedToolIds = input.selectedToolIds;
 						selectedFilterIds = input.selectedFilterIds;
 						webSearchEnabled = input.webSearchEnabled;
+						deepSearchEnabled = input.deepSearchEnabled;
 						imageGenerationEnabled = input.imageGenerationEnabled;
 						codeInterpreterEnabled = input.codeInterpreterEnabled;
 					}
@@ -256,6 +261,7 @@
 		selectedToolIds = [];
 		selectedFilterIds = [];
 		webSearchEnabled = false;
+		deepSearchEnabled = false;
 		imageGenerationEnabled = false;
 		codeInterpreterEnabled = false;
 
@@ -578,6 +584,7 @@
 			selectedToolIds = [];
 			selectedFilterIds = [];
 			webSearchEnabled = false;
+			deepSearchEnabled = false;
 			imageGenerationEnabled = false;
 			codeInterpreterEnabled = false;
 
@@ -590,6 +597,7 @@
 					selectedToolIds = input.selectedToolIds;
 					selectedFilterIds = input.selectedFilterIds;
 					webSearchEnabled = input.webSearchEnabled;
+					deepSearchEnabled = input.deepSearchEnabled;
 					imageGenerationEnabled = input.imageGenerationEnabled;
 					codeInterpreterEnabled = input.codeInterpreterEnabled;
 				}
@@ -1741,6 +1749,29 @@
 		// Save chat after all messages have been created
 		await saveChatHandler(_chatId, _history);
 
+		if (deepSearchEnabled) {
+			generating = true;
+			generationController = new AbortController();
+
+			await Promise.all(
+				selectedModelIds.map(async (modelId, _modelIdx) => {
+					const model = $models.filter((m) => m.id === modelId).at(0);
+					if (!model) {
+						toast.error($i18n.t(`Model {{modelId}} not found`, { modelId }));
+						return;
+					}
+
+					let responseMessageId =
+						responseMessageIds[`${modelId}-${modelIdx ? modelIdx : _modelIdx}`];
+					await sendDeepSearch(model, _history, responseMessageId, _chatId);
+				})
+			);
+
+			generating = false;
+			generationController = null;
+			return;
+		}
+
 		await Promise.all(
 			selectedModelIds.map(async (modelId, _modelIdx) => {
 				console.log('modelId', modelId);
@@ -2046,6 +2077,120 @@
 
 		await tick();
 		scrollToBottom();
+	};
+
+	const sendDeepSearch = async (model, _history, responseMessageId, _chatId) => {
+		const responseMessage = _history.messages[responseMessageId];
+		const userMessage = _history.messages[responseMessage.parentId];
+
+		scrollToBottom();
+		eventTarget.dispatchEvent(
+			new CustomEvent('chat:start', {
+				detail: {
+					id: responseMessageId
+				}
+			})
+		);
+
+		responseMessage.statusHistory = [
+			{
+				action: 'deep_search',
+				description: $i18n.t('Running deep research'),
+				done: false
+			}
+		];
+		history.messages[responseMessageId] = responseMessage;
+
+		try {
+			const res = await generateDeepSearchReport(
+				localStorage.token,
+				{
+					query: userMessage?.content ?? '',
+					messages: createMessagesList(_history, responseMessageId).map((message) => ({
+						role: message.role,
+						content: message.content
+					})),
+					model: model.id,
+					chat_id: $chatId,
+					message_id: responseMessageId,
+					session_id: $socket?.id
+				},
+				generationController?.signal
+			);
+
+			responseMessage.content = res ?? '';
+			responseMessage.done = true;
+			responseMessage.statusHistory = [
+				{
+					action: 'deep_search',
+					description: $i18n.t('Deep research completed'),
+					done: true
+				}
+			];
+		} catch (error) {
+			let errorMessage = error;
+			if (error?.error?.message) {
+				errorMessage = error.error.message;
+			} else if (error?.message) {
+				errorMessage = error.message;
+			}
+
+			if (typeof errorMessage === 'object') {
+				errorMessage = $i18n.t(`Uh-oh! There was an issue with the response.`);
+			}
+
+			if (generationController?.signal?.aborted) {
+				errorMessage = $i18n.t('Request cancelled');
+			}
+
+			responseMessage.error = {
+				content: errorMessage
+			};
+			responseMessage.done = true;
+			responseMessage.statusHistory = [
+				{
+					action: 'deep_search',
+					description: $i18n.t('Deep research failed'),
+					done: true,
+					error: true
+				}
+			];
+		}
+
+		history.messages[responseMessageId] = responseMessage;
+		history.currentId = responseMessageId;
+
+		await tick();
+		await saveChatHandler(_chatId, history);
+		scrollToBottom();
+
+		if (
+			!$temporaryChatEnabled &&
+			($settings?.title?.auto ?? true) &&
+			_chatId &&
+			!String(_chatId).startsWith('local:')
+		) {
+			const messages = createMessagesList(history, history.currentId).map((message) => ({
+				role: message.role,
+				content: message.content
+			}));
+
+			const generatedTitle = await generateTitle(
+				localStorage.token,
+				model.id,
+				messages,
+				_chatId
+			).catch(() => null);
+
+			if (generatedTitle) {
+				await updateChatById(localStorage.token, _chatId, {
+					title: generatedTitle
+				});
+				chatTitle.set(generatedTitle);
+				currentChatPage.set(1);
+				await chats.set(await getChatList(localStorage.token, $currentChatPage));
+			}
+		}
 	};
 
 	const handleOpenAIError = async (error, responseMessage) => {
@@ -2538,6 +2683,7 @@
 									bind:imageGenerationEnabled
 									bind:codeInterpreterEnabled
 									bind:webSearchEnabled
+									bind:deepSearchEnabled
 									bind:atSelectedModel
 									bind:showCommands
 									toolServers={$toolServers}
@@ -2590,6 +2736,7 @@
 									bind:imageGenerationEnabled
 									bind:codeInterpreterEnabled
 									bind:webSearchEnabled
+									bind:deepSearchEnabled
 									bind:atSelectedModel
 									bind:showCommands
 									toolServers={$toolServers}

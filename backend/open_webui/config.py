@@ -3007,6 +3007,41 @@ WEB_SEARCH_TRUST_ENV = PersistentConfig(
     os.getenv("WEB_SEARCH_TRUST_ENV", "False").lower() == "true",
 )
 
+####################################
+# Deep Search
+####################################
+
+ENABLE_DEEP_SEARCH = PersistentConfig(
+    "ENABLE_DEEP_SEARCH",
+    "deep_search.enable",
+    os.getenv("ENABLE_DEEP_SEARCH", "False").lower() == "true",
+)
+
+DEEP_SEARCH_DEPTH = PersistentConfig(
+    "DEEP_SEARCH_DEPTH",
+    "deep_search.depth",
+    int(os.getenv("DEEP_SEARCH_DEPTH", "3")),
+)
+
+DEEP_SEARCH_BREADTH = PersistentConfig(
+    "DEEP_SEARCH_BREADTH",
+    "deep_search.breadth",
+    int(os.getenv("DEEP_SEARCH_BREADTH", "3")),
+)
+
+DEEP_SEARCH_RESULT_COUNT = PersistentConfig(
+    "DEEP_SEARCH_RESULT_COUNT",
+    "deep_search.result_count",
+    int(os.getenv("DEEP_SEARCH_RESULT_COUNT", "5")),
+)
+
+DEEP_SEARCH_CONCURRENCY = PersistentConfig(
+    "DEEP_SEARCH_CONCURRENCY",
+    "deep_search.concurrency",
+    int(os.getenv("DEEP_SEARCH_CONCURRENCY", "2")),
+)
+
+
 
 OLLAMA_CLOUD_WEB_SEARCH_API_KEY = PersistentConfig(
     "OLLAMA_CLOUD_WEB_SEARCH_API_KEY",
@@ -3229,7 +3264,7 @@ PLAYWRIGHT_TIMEOUT = PersistentConfig(
 FIRECRAWL_API_KEY = PersistentConfig(
     "FIRECRAWL_API_KEY",
     "rag.web.loader.firecrawl_api_key",
-    os.environ.get("FIRECRAWL_API_KEY", ""),
+    os.environ.get("FIRECRAWL_API_KEY", os.environ.get("FIRECRAWL_KEY", "")),
 )
 
 FIRECRAWL_API_BASE_URL = PersistentConfig(

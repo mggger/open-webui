@@ -17,9 +17,11 @@
 	import Connections from './Settings/Connections.svelte';
 	import Documents from './Settings/Documents.svelte';
 	import WebSearch from './Settings/WebSearch.svelte';
+	import DeepSearch from './Settings/DeepSearch.svelte';
 
 	import ChartBar from '../icons/ChartBar.svelte';
 	import DocumentChartBar from '../icons/DocumentChartBar.svelte';
+	import Search from '../icons/Search.svelte';
 	import Evaluations from './Settings/Evaluations.svelte';
 	import CodeExecution from './Settings/CodeExecution.svelte';
 	import Tools from './Settings/Tools.svelte';
@@ -39,8 +41,9 @@
 			'evaluations',
 			'tools',
 			'documents',
-			'web',
-			'code-execution',
+		'web',
+		'deep-search',
+		'code-execution',
 			'interface',
 			'audio',
 			'images',
@@ -264,6 +267,22 @@
 		</button>
 
 		<button
+			id="deep-search"
+			class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
+			'deep-search'
+				? ''
+				: ' text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
+			on:click={() => {
+				goto('/admin/settings/deep-search');
+			}}
+		>
+			<div class=" self-center mr-2">
+				<Search className="w-4 h-4" />
+			</div>
+			<div class=" self-center">{$i18n.t('Deep Search')}</div>
+		</button>
+
+		<button
 			id="code-execution"
 			class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
 			'code-execution'
@@ -468,6 +487,15 @@
 			/>
 		{:else if selectedTab === 'web'}
 			<WebSearch
+				saveHandler={async () => {
+					toast.success($i18n.t('Settings saved successfully!'));
+
+					await tick();
+					await config.set(await getBackendConfig());
+				}}
+			/>
+		{:else if selectedTab === 'deep-search'}
+			<DeepSearch
 				saveHandler={async () => {
 					toast.success($i18n.t('Settings saved successfully!'));
 

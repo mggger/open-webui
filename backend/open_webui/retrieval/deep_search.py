@@ -18,6 +18,13 @@ log.setLevel(SRC_LOG_LEVELS["RAG"])
 MAX_CONTENT_CHARS = 25_000
 
 
+def _preview(text: str, max_chars: int = 160) -> str:
+    text = (text or "").replace("\n", " ").strip()
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}..."
+
+
 def _trim_text(text: str, max_chars: int = MAX_CONTENT_CHARS) -> str:
     if not text:
         return ""
@@ -96,6 +103,12 @@ async def _call_llm_json(
     model_id: str,
     prompt: str,
 ) -> Tuple[str, Optional[Dict[str, Any]]]:
+    log.debug(
+        "deep_search.llm.request model=%s prompt_len=%s prompt_preview=%r",
+        model_id,
+        len(prompt or ""),
+        _preview(prompt),
+    )
     payload = {
         "model": model_id,
         "messages": [
@@ -109,15 +122,53 @@ async def _call_llm_json(
     models = request.app.state.MODELS
     payload = await process_pipeline_inlet_filter(request, payload, user, models)
     res = await generate_chat_completion(request, form_data=payload, user=user)
+    status_code = getattr(res, "status_code", 200)
     if hasattr(res, "body"):
         try:
             res = json.loads(res.body.decode("utf-8"))
         except Exception:
             res = {}
-    content = _normalize_content(
-        res.get("choices", [{}])[0].get("message", {}).get("content", "")
+    if isinstance(res, dict):
+        log.debug(
+            "deep_search.llm.response status=%s keys=%s",
+            status_code,
+            sorted(list(res.keys())),
+        )
+    else:
+        log.debug(
+            "deep_search.llm.response status=%s type=%s",
+            status_code,
+            type(res).__name__,
+        )
+    if status_code and int(status_code) >= 400:
+        detail = None
+        if isinstance(res, dict):
+            detail = res.get("detail") or res.get("error")
+        if not detail:
+            detail = f"HTTP {status_code}"
+        log.warning("deep_search.llm.error status=%s detail=%r", status_code, detail)
+        raise RuntimeError(f"Deep search model call failed: {detail}")
+    if isinstance(res, dict) and "choices" not in res:
+        detail = res.get("detail") or res.get("error")
+        if detail:
+            log.warning(
+                "deep_search.llm.invalid_response status=%s detail=%r keys=%s",
+                status_code,
+                detail,
+                sorted(list(res.keys())),
+            )
+            raise RuntimeError(f"Deep search model response invalid: {detail}")
+    message = res.get("choices", [{}])[0].get("message", {}) if isinstance(res, dict) else {}
+    # vLLM or reasoning models may return text in reasoning_content with empty content.
+    message_content = message.get("content") or message.get("reasoning_content") or ""
+    content = _normalize_content(message_content)
+    parsed = _extract_json(content)
+    log.debug(
+        "deep_search.llm.parsed content_len=%s parsed=%s",
+        len(content or ""),
+        parsed is not None,
     )
-    return content, _extract_json(content)
+    return content, parsed
 
 
 async def _generate_serp_queries(
@@ -128,6 +179,12 @@ async def _generate_serp_queries(
     breadth: int,
     learnings: Optional[List[str]] = None,
 ) -> List[Dict[str, str]]:
+    log.debug(
+        "deep_search.generate_queries breadth=%s previous_learnings=%s query_preview=%r",
+        breadth,
+        len(learnings or []),
+        _preview(query),
+    )
     learnings_section = ""
     if learnings:
         learnings_section = (
@@ -152,7 +209,9 @@ async def _generate_serp_queries(
             if isinstance(q, dict) and q.get("query")
         ]
         if queries:
+            log.debug("deep_search.generate_queries.generated count=%s", len(queries[:breadth]))
             return queries[:breadth]
+    log.debug("deep_search.generate_queries.fallback_single_query")
     return [{"query": query, "researchGoal": "Explore the topic in depth."}]
 
 
@@ -165,6 +224,13 @@ async def _extract_learnings(
     num_learnings: int,
     num_followups: int,
 ) -> Tuple[List[str], List[str]]:
+    log.debug(
+        "deep_search.extract_learnings query_preview=%r contents=%s num_learnings=%s num_followups=%s",
+        _preview(query),
+        len(contents or []),
+        num_learnings,
+        num_followups,
+    )
     trimmed_contents = [_trim_text(content) for content in contents if content]
     prompt = (
         "Given the following contents from a SERP search for the query "
@@ -186,6 +252,11 @@ async def _extract_learnings(
 
     learnings = [l for l in learnings if isinstance(l, str) and l.strip()]
     followups = [q for q in followups if isinstance(q, str) and q.strip()]
+    log.debug(
+        "deep_search.extract_learnings.result learnings=%s followups=%s",
+        len(learnings),
+        len(followups),
+    )
 
     return learnings[:num_learnings], followups[:num_followups]
 
@@ -228,6 +299,13 @@ async def _write_final_report(
     learnings: List[str],
     sources: List[Dict[str, str]],
 ) -> str:
+    log.debug(
+        "deep_search.report.start model=%s learnings=%s sources=%s prompt_preview=%r",
+        model_id,
+        len(learnings or []),
+        len(sources or []),
+        _preview(prompt),
+    )
     report_prompt = _build_report_prompt(prompt, learnings) + (
         '\n\nReturn JSON in the form:\n{"reportMarkdown":"..."}'
     )
@@ -237,6 +315,12 @@ async def _write_final_report(
     report = _normalize_content(report)
     if not isinstance(report, str) or not report.strip():
         report = _normalize_content(raw)
+    log.debug(
+        "deep_search.report.result raw_len=%s report_len=%s parsed=%s",
+        len(raw or ""),
+        len(report or ""),
+        parsed is not None,
+    )
 
     return _inject_citations(report, sources)
 
@@ -296,6 +380,15 @@ async def run_deep_search(
 
     depth = max(1, depth)
     breadth = max(1, breadth)
+    log.info(
+        "deep_search.run.start model=%s depth=%s breadth=%s result_count=%s concurrency=%s seed_learnings=%s",
+        model_id,
+        depth,
+        breadth,
+        result_count,
+        concurrency,
+        len(learnings),
+    )
 
     if on_progress:
         await on_progress(
@@ -311,6 +404,11 @@ async def run_deep_search(
 
     serp_queries = await _generate_serp_queries(
         request, user, model_id, query, breadth, learnings=learnings
+    )
+    log.info(
+        "deep_search.run.queries_generated count=%s queries=%s",
+        len(serp_queries),
+        [q.get("query", "") for q in serp_queries],
     )
 
     if on_progress:
@@ -330,6 +428,11 @@ async def run_deep_search(
     async def handle_query(serp_query: Dict[str, str]) -> Dict[str, List[str]]:
         async with sem:
             try:
+                log.info(
+                    "deep_search.query.start depth=%s query=%r",
+                    depth,
+                    serp_query.get("query", query),
+                )
                 if on_progress:
                     await on_progress(
                         {
@@ -349,6 +452,11 @@ async def run_deep_search(
                     serp_query.get("query", query),
                     result_count,
                     filter_list=request.app.state.config.WEB_SEARCH_DOMAIN_FILTER_LIST,
+                )
+                log.info(
+                    "deep_search.query.search_results count=%s query=%r",
+                    len(search_results),
+                    serp_query.get("query", query),
                 )
                 urls = [result.link for result in search_results if result.link]
                 new_sources = [
@@ -385,6 +493,12 @@ async def run_deep_search(
                     num_learnings=3,
                     num_followups=num_followups,
                 )
+                log.info(
+                    "deep_search.query.learnings learnings=%s followups=%s urls=%s",
+                    len(new_learnings),
+                    len(followups),
+                    len(urls),
+                )
 
                 combined_learnings = learnings + new_learnings
                 combined_urls = visited_urls + urls
@@ -411,6 +525,11 @@ async def run_deep_search(
                         on_progress=on_progress,
                     )
 
+                log.info(
+                    "deep_search.query.done total_learnings=%s total_sources=%s",
+                    len(combined_learnings),
+                    len(all_sources),
+                )
                 return {
                     "learnings": combined_learnings,
                     "visited_urls": combined_urls,
@@ -450,6 +569,12 @@ async def run_deep_search(
     dedup_learnings = list(dict.fromkeys(all_learnings))
     dedup_urls = list(dict.fromkeys(all_urls))
     dedup_sources = _dedupe_sources(all_sources)
+    log.info(
+        "deep_search.run.done learnings=%s urls=%s sources=%s",
+        len(dedup_learnings),
+        len(dedup_urls),
+        len(dedup_sources),
+    )
 
     return {
         "learnings": dedup_learnings,
@@ -470,6 +595,16 @@ async def generate_deep_search_report(
     messages: Optional[List[Dict[str, Any]]] = None,
     on_progress: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
 ) -> Dict[str, Any]:
+    log.info(
+        "deep_search.report_flow.start model=%s depth=%s breadth=%s result_count=%s concurrency=%s messages=%s query_preview=%r",
+        model_id,
+        depth,
+        breadth,
+        result_count,
+        concurrency,
+        len(messages or []),
+        _preview(query),
+    )
     full_query = query
     if messages:
         conversation = "\n".join(
@@ -492,6 +627,11 @@ async def generate_deep_search_report(
         result_count=result_count,
         concurrency=concurrency,
         on_progress=on_progress,
+    )
+    log.info(
+        "deep_search.report_flow.search_complete learnings=%s sources=%s",
+        len(result.get("learnings", [])),
+        len(result.get("sources", [])),
     )
 
     if on_progress:
@@ -521,6 +661,12 @@ async def generate_deep_search_report(
         full_query,
         result.get("learnings", []),
         result.get("sources", []),
+    )
+    log.info(
+        "deep_search.report_flow.done report_len=%s learnings=%s sources=%s",
+        len(report or ""),
+        len(result.get("learnings", [])),
+        len(result.get("sources", [])),
     )
 
     if on_progress:

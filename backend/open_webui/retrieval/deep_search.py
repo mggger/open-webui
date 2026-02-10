@@ -39,6 +39,24 @@ def _extract_json(content: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _normalize_content(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts: List[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text)
+            elif isinstance(item, str) and item.strip():
+                parts.append(item)
+        return "\n".join(parts).strip()
+    return str(value)
+
+
 def _system_prompt() -> str:
     now = datetime.now(timezone.utc).isoformat()
     return (
@@ -96,7 +114,9 @@ async def _call_llm_json(
             res = json.loads(res.body.decode("utf-8"))
         except Exception:
             res = {}
-    content = res.get("choices", [{}])[0].get("message", {}).get("content", "")
+    content = _normalize_content(
+        res.get("choices", [{}])[0].get("message", {}).get("content", "")
+    )
     return content, _extract_json(content)
 
 
@@ -170,8 +190,8 @@ async def _extract_learnings(
     return learnings[:num_learnings], followups[:num_followups]
 
 
-def _inject_citations(report: str, sources: List[Dict[str, str]]) -> str:
-    report = report.strip()
+def _inject_citations(report: Optional[str], sources: List[Dict[str, str]]) -> str:
+    report = (report or "").strip()
     if not report or not sources:
         return report
 
@@ -214,8 +234,9 @@ async def _write_final_report(
 
     raw, parsed = await _call_llm_json(request, user, model_id, report_prompt)
     report = parsed.get("reportMarkdown") if parsed else raw
+    report = _normalize_content(report)
     if not isinstance(report, str) or not report.strip():
-        report = raw
+        report = _normalize_content(raw)
 
     return _inject_citations(report, sources)
 

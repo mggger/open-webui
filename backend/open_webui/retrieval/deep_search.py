@@ -110,6 +110,7 @@ async def _call_llm_json(
     user: Any,
     model_id: str,
     prompt: str,
+    overrides: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, Optional[Dict[str, Any]]]:
     log.debug(
         "deep_search.llm.request model=%s prompt_len=%s prompt_preview=%r",
@@ -126,6 +127,8 @@ async def _call_llm_json(
         "stream": False,
         "metadata": {"task": "deep_search"},
     }
+    if overrides:
+        payload.update(overrides)
 
     models = request.app.state.MODELS
     payload = await process_pipeline_inlet_filter(request, payload, user, models)
@@ -332,7 +335,15 @@ async def _write_final_report(
         '\n\nReturn JSON in the form:\n{"reportMarkdown":"..."}'
     )
 
-    raw, parsed = await _call_llm_json(request, user, model_id, report_prompt)
+    raw, parsed = await _call_llm_json(
+        request,
+        user,
+        model_id,
+        report_prompt,
+        overrides={
+            "max_completion_tokens": 8192,
+        },
+    )
     report = parsed.get("reportMarkdown") if parsed else raw
     report = _normalize_content(report)
     if not isinstance(report, str) or not report.strip():

@@ -159,8 +159,9 @@ async def _call_llm_json(
             )
             raise RuntimeError(f"Deep search model response invalid: {detail}")
     message = res.get("choices", [{}])[0].get("message", {}) if isinstance(res, dict) else {}
-    # vLLM or reasoning models may return text in reasoning_content with empty content.
-    message_content = message.get("content") or message.get("reasoning_content") or ""
+    if not isinstance(message, dict):
+        message = {}
+    message_content = message.get("content") or ""
     content = _normalize_content(message_content)
     parsed = _extract_json(content)
     log.debug(

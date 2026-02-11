@@ -1763,7 +1763,7 @@
 
 					let responseMessageId =
 						responseMessageIds[`${modelId}-${modelIdx ? modelIdx : _modelIdx}`];
-					await sendDeepSearch(model, _history, responseMessageId, _chatId);
+					await sendDeepSearch(model, _history, responseMessageId, _chatId, systemPromptOverride);
 				})
 			);
 
@@ -2079,9 +2079,17 @@
 		scrollToBottom();
 	};
 
-	const sendDeepSearch = async (model, _history, responseMessageId, _chatId) => {
+	const sendDeepSearch = async (
+		model,
+		_history,
+		responseMessageId,
+		_chatId,
+		systemPromptOverride = null
+	) => {
 		const responseMessage = _history.messages[responseMessageId];
 		const userMessage = _history.messages[responseMessage.parentId];
+		const systemPromptBase = params?.system ?? $settings?.system ?? '';
+		const systemPrompt = [systemPromptBase, systemPromptOverride].filter(Boolean).join('\n\n');
 
 		scrollToBottom();
 		eventTarget.dispatchEvent(
@@ -2106,6 +2114,7 @@
 				localStorage.token,
 				{
 					query: userMessage?.content ?? '',
+					system: systemPrompt,
 					messages: createMessagesList(_history, responseMessageId).map((message) => ({
 						role: message.role,
 						content: message.content

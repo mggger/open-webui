@@ -91,71 +91,23 @@
 
 					<div class="flex gap-2 w-full items-center justify-between mb-2.5">
 						<div class="text-xs font-medium">
-							{$i18n.t('Deep Search Depth')}
+							{$i18n.t('Deep Search Max Iterations')}
 						</div>
-						<Tooltip content={$i18n.t('Enter depth (e.g. 3)')}>
+						<Tooltip content={$i18n.t('Enter max iterative rounds (e.g. 3)')}>
 							<input
 								class="dark:bg-gray-900 w-fit rounded-sm px-2 p-1 text-xs bg-transparent outline-hidden text-right"
 								type="number"
 								min="1"
-								bind:value={config.DEEP_SEARCH_DEPTH}
+								bind:value={config.DEEP_SEARCH_MAX_ITERATIONS}
 								placeholder={$i18n.t('e.g. 3')}
 								autocomplete="off"
 							/>
 						</Tooltip>
 					</div>
 
-					<div class="flex gap-2 w-full items-center justify-between mb-2.5">
-						<div class="text-xs font-medium">
-							{$i18n.t('Deep Search Breadth')}
-						</div>
-						<Tooltip content={$i18n.t('Enter breadth (e.g. 3)')}>
-							<input
-								class="dark:bg-gray-900 w-fit rounded-sm px-2 p-1 text-xs bg-transparent outline-hidden text-right"
-								type="number"
-								min="1"
-								bind:value={config.DEEP_SEARCH_BREADTH}
-								placeholder={$i18n.t('e.g. 3')}
-								autocomplete="off"
-							/>
-						</Tooltip>
 					</div>
-
-					<div class="flex gap-2 w-full items-center justify-between mb-2.5">
-						<div class="text-xs font-medium">
-							{$i18n.t('Deep Search Result Count')}
-						</div>
-						<Tooltip content={$i18n.t('Enter result count per query')}>
-							<input
-								class="dark:bg-gray-900 w-fit rounded-sm px-2 p-1 text-xs bg-transparent outline-hidden text-right"
-								type="number"
-								min="1"
-								bind:value={config.DEEP_SEARCH_RESULT_COUNT}
-								placeholder={$i18n.t('e.g. 5')}
-								autocomplete="off"
-							/>
-						</Tooltip>
-					</div>
-
-					<div class="flex gap-2 w-full items-center justify-between mb-2.5">
-						<div class="text-xs font-medium">
-							{$i18n.t('Deep Search Concurrency')}
-						</div>
-						<Tooltip content={$i18n.t('Enter concurrency (e.g. 2)')}>
-							<input
-								class="dark:bg-gray-900 w-fit rounded-sm px-2 p-1 text-xs bg-transparent outline-hidden text-right"
-								type="number"
-								min="1"
-								bind:value={config.DEEP_SEARCH_CONCURRENCY}
-								placeholder={$i18n.t('e.g. 2')}
-								autocomplete="off"
-							/>
-						</Tooltip>
-					</div>
-
 				</div>
-			</div>
-		{/if}
+			{/if}
 	</div>
 	<div class="flex justify-end pt-3 text-sm font-medium">
 		<button

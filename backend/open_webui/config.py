@@ -3017,31 +3017,11 @@ ENABLE_DEEP_SEARCH = PersistentConfig(
     os.getenv("ENABLE_DEEP_SEARCH", "False").lower() == "true",
 )
 
-DEEP_SEARCH_DEPTH = PersistentConfig(
-    "DEEP_SEARCH_DEPTH",
-    "deep_search.depth",
-    int(os.getenv("DEEP_SEARCH_DEPTH", "3")),
+DEEP_SEARCH_MAX_ITERATIONS = PersistentConfig(
+    "DEEP_SEARCH_MAX_ITERATIONS",
+    "deep_search.max_iterations",
+    int(os.getenv("DEEP_SEARCH_MAX_ITERATIONS", "3")),
 )
-
-DEEP_SEARCH_BREADTH = PersistentConfig(
-    "DEEP_SEARCH_BREADTH",
-    "deep_search.breadth",
-    int(os.getenv("DEEP_SEARCH_BREADTH", "3")),
-)
-
-DEEP_SEARCH_RESULT_COUNT = PersistentConfig(
-    "DEEP_SEARCH_RESULT_COUNT",
-    "deep_search.result_count",
-    int(os.getenv("DEEP_SEARCH_RESULT_COUNT", "5")),
-)
-
-DEEP_SEARCH_CONCURRENCY = PersistentConfig(
-    "DEEP_SEARCH_CONCURRENCY",
-    "deep_search.concurrency",
-    int(os.getenv("DEEP_SEARCH_CONCURRENCY", "2")),
-)
-
-
 
 OLLAMA_CLOUD_WEB_SEARCH_API_KEY = PersistentConfig(
     "OLLAMA_CLOUD_WEB_SEARCH_API_KEY",

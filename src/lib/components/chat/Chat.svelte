@@ -1558,12 +1558,42 @@
 		console.log('submitPrompt', userPrompt, $chatId);
 
 		let systemPromptOverride = null;
-		const hasDoSearchTag = /!do_search/.test(userPrompt);
-		if (hasDoSearchTag) {
-			webSearchEnabled = true;
-			userPrompt = 'search for information regrading cyber incidents in the last 72 hours';
-			systemPromptOverride =
-				'Please organize it into a table and return it using the following structure:\n\n| Date of Incident | Breach Type | Affected Organization / Entity | Number of Affected Records | Description | Impact | Source URL |';
+		const commandAutomation = $settings?.commandAutomation;
+		const normalizedPrompt = (userPrompt ?? '').trim();
+		const configuredCommand = (commandAutomation?.command ?? '').trim();
+		const hasConfiguredCommand =
+			configuredCommand.startsWith('!') &&
+			(normalizedPrompt === configuredCommand ||
+				normalizedPrompt.startsWith(`${configuredCommand} `));
+
+		if (hasConfiguredCommand) {
+			const mode = commandAutomation?.mode ?? 'tools';
+			const configuredUserInput = (commandAutomation?.userInput ?? '').trim();
+			const configuredSystemPrompt = (commandAutomation?.systemPrompt ?? '').trim();
+			const configuredToolIds = Array.isArray(commandAutomation?.toolIds)
+				? commandAutomation.toolIds.filter((toolId) => typeof toolId === 'string' && toolId.trim())
+				: [];
+
+			if (configuredUserInput) {
+				userPrompt = configuredUserInput;
+			}
+			if (configuredSystemPrompt) {
+				systemPromptOverride = configuredSystemPrompt;
+			}
+
+			if (mode === 'deep_research') {
+				deepSearchEnabled = true;
+				webSearchEnabled = false;
+				selectedToolIds = [];
+			} else if (mode === 'web_search') {
+				webSearchEnabled = true;
+				deepSearchEnabled = false;
+				selectedToolIds = [];
+			} else if (mode === 'tools') {
+				deepSearchEnabled = false;
+				webSearchEnabled = false;
+				selectedToolIds = configuredToolIds;
+			}
 		}
 
 		const _selectedModels = selectedModels.map((modelId) =>

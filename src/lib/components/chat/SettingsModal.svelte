@@ -14,6 +14,7 @@
 	import Audio from './Settings/Audio.svelte';
 	import DataControls from './Settings/DataControls.svelte';
 	import Personalization from './Settings/Personalization.svelte';
+	import CommandAutomation from './Settings/CommandAutomation.svelte';
 	import Search from '../icons/Search.svelte';
 	import XMark from '../icons/XMark.svelte';
 	import Connections from './Settings/Connections.svelte';
@@ -28,6 +29,7 @@
 	import Face from '../icons/Face.svelte';
 	import AppNotification from '../icons/AppNotification.svelte';
 	import UserBadgeCheck from '../icons/UserBadgeCheck.svelte';
+	import CommandLine from '../icons/CommandLine.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -232,7 +234,21 @@
 				'settings'
 			]
 		},
-
+		{
+			id: 'command_automation',
+			title: 'Command Automation',
+			keywords: [
+				'command',
+				'commands',
+				'prompt command',
+				'prompt commands',
+				'command automation',
+				'automation',
+				'web search command',
+				'deep research command',
+				'tool command'
+			]
+		},
 		{
 			id: 'personalization',
 			title: 'Personalization',
@@ -686,9 +702,9 @@
 									<div class=" self-center">{$i18n.t('Connections')}</div>
 								</button>
 							{/if}
-						{:else if tabId === 'tools'}
-							{#if $user?.role === 'admin' || ($user?.role === 'user' && $user?.permissions?.features?.direct_tool_servers)}
-								<button
+							{:else if tabId === 'tools'}
+								{#if $user?.role === 'admin' || ($user?.role === 'user' && $user?.permissions?.features?.direct_tool_servers)}
+									<button
 									role="tab"
 									aria-controls="tab-tools"
 									aria-selected={selectedTab === 'tools'}
@@ -709,12 +725,12 @@
 									<div class=" self-center mr-2">
 										<WrenchAlt strokeWidth="2" />
 									</div>
-									<div class=" self-center">{$i18n.t('External Tools')}</div>
-								</button>
-							{/if}
-						{:else if tabId === 'personalization'}
-							<button
-								role="tab"
+										<div class=" self-center">{$i18n.t('External Tools')}</div>
+									</button>
+								{/if}
+							{:else if tabId === 'personalization'}
+								<button
+									role="tab"
 								aria-controls="tab-personalization"
 								aria-selected={selectedTab === 'personalization'}
 								class={`px-0.5 md:px-2.5 py-1 min-w-fit rounded-xl flex-1 md:flex-none flex text-left transition
@@ -731,12 +747,36 @@
 									selectedTab = 'personalization';
 								}}
 							>
-								<div class=" self-center mr-2">
-									<Face strokeWidth="2" />
-								</div>
-								<div class=" self-center">{$i18n.t('Personalization')}</div>
-							</button>
-						{:else if tabId === 'audio'}
+									<div class=" self-center mr-2">
+										<Face strokeWidth="2" />
+									</div>
+									<div class=" self-center">{$i18n.t('Personalization')}</div>
+								</button>
+							{:else if tabId === 'command_automation'}
+								<button
+									role="tab"
+									aria-controls="tab-command-automation"
+									aria-selected={selectedTab === 'command_automation'}
+									class={`px-0.5 md:px-2.5 py-1 min-w-fit rounded-xl flex-1 md:flex-none flex text-left transition
+									${
+										selectedTab === 'command_automation'
+											? ($settings?.highContrastMode ?? false)
+												? 'dark:bg-gray-800 bg-gray-200'
+												: ''
+											: ($settings?.highContrastMode ?? false)
+												? 'hover:bg-gray-200 dark:hover:bg-gray-800'
+												: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'
+									}`}
+									on:click={() => {
+										selectedTab = 'command_automation';
+									}}
+								>
+									<div class=" self-center mr-2">
+										<CommandLine strokeWidth="2" />
+									</div>
+									<div class=" self-center">{$i18n.t('Command Automation')}</div>
+								</button>
+							{:else if tabId === 'audio'}
 							<button
 								role="tab"
 								aria-controls="tab-audio"
@@ -881,24 +921,31 @@
 							toast.success($i18n.t('Settings saved successfully!'));
 						}}
 					/>
-				{:else if selectedTab === 'tools'}
-					<Tools
-						saveSettings={async (updated) => {
-							await saveSettings(updated);
-							toast.success($i18n.t('Settings saved successfully!'));
-						}}
-					/>
-				{:else if selectedTab === 'personalization'}
-					<Personalization
-						{saveSettings}
-						on:save={() => {
-							toast.success($i18n.t('Settings saved successfully!'));
-						}}
-					/>
-				{:else if selectedTab === 'audio'}
-					<Audio
-						{saveSettings}
-						on:save={() => {
+					{:else if selectedTab === 'tools'}
+						<Tools
+							saveSettings={async (updated) => {
+								await saveSettings(updated);
+								toast.success($i18n.t('Settings saved successfully!'));
+							}}
+						/>
+					{:else if selectedTab === 'personalization'}
+						<Personalization
+							{saveSettings}
+							on:save={() => {
+								toast.success($i18n.t('Settings saved successfully!'));
+							}}
+						/>
+					{:else if selectedTab === 'command_automation'}
+						<CommandAutomation
+							{saveSettings}
+							on:save={() => {
+								toast.success($i18n.t('Settings saved successfully!'));
+							}}
+						/>
+					{:else if selectedTab === 'audio'}
+						<Audio
+							{saveSettings}
+							on:save={() => {
 							toast.success($i18n.t('Settings saved successfully!'));
 						}}
 					/>

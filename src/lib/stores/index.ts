@@ -151,13 +151,22 @@ type OllamaModelDetails = {
 };
 
 type Settings = {
-	commandAutomation?: {
-		command?: string;
-		systemPrompt?: string;
-		userInput?: string;
-		mode?: 'tools' | 'web_search' | 'deep_research';
-		toolIds?: string[];
-	} | null;
+	commandAutomation?:
+		| {
+				command?: string;
+				systemPrompt?: string;
+				userInput?: string;
+				mode?: 'tools' | 'web_search' | 'deep_research';
+				toolIds?: string[];
+		  }
+		| {
+				command?: string;
+				systemPrompt?: string;
+				userInput?: string;
+				mode?: 'tools' | 'web_search' | 'deep_research';
+				toolIds?: string[];
+		  }[]
+		| null;
 	pinnedModels?: never[];
 	toolServers?: never[];
 	detectArtifacts?: boolean;

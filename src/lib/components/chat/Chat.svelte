@@ -1558,20 +1558,27 @@
 		console.log('submitPrompt', userPrompt, $chatId);
 
 		let systemPromptOverride = null;
-		const commandAutomation = $settings?.commandAutomation;
+		const commandAutomationConfig = $settings?.commandAutomation;
+		const commandAutomationRules = Array.isArray(commandAutomationConfig)
+			? commandAutomationConfig
+			: commandAutomationConfig
+				? [commandAutomationConfig]
+				: [];
 		const normalizedPrompt = (userPrompt ?? '').trim();
-		const configuredCommand = (commandAutomation?.command ?? '').trim();
-		const hasConfiguredCommand =
-			configuredCommand.startsWith('!') &&
-			(normalizedPrompt === configuredCommand ||
-				normalizedPrompt.startsWith(`${configuredCommand} `));
+		const matchedRule = commandAutomationRules.find((rule) => {
+			const command = (rule?.command ?? '').trim();
+			return (
+				command.startsWith('!') &&
+				(normalizedPrompt === command || normalizedPrompt.startsWith(`${command} `))
+			);
+		});
 
-		if (hasConfiguredCommand) {
-			const mode = commandAutomation?.mode ?? 'tools';
-			const configuredUserInput = (commandAutomation?.userInput ?? '').trim();
-			const configuredSystemPrompt = (commandAutomation?.systemPrompt ?? '').trim();
-			const configuredToolIds = Array.isArray(commandAutomation?.toolIds)
-				? commandAutomation.toolIds.filter((toolId) => typeof toolId === 'string' && toolId.trim())
+		if (matchedRule) {
+			const mode = matchedRule?.mode ?? 'tools';
+			const configuredUserInput = (matchedRule?.userInput ?? '').trim();
+			const configuredSystemPrompt = (matchedRule?.systemPrompt ?? '').trim();
+			const configuredToolIds = Array.isArray(matchedRule?.toolIds)
+				? matchedRule.toolIds.filter((toolId) => typeof toolId === 'string' && toolId.trim())
 				: [];
 
 			if (configuredUserInput) {

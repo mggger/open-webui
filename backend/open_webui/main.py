@@ -540,8 +540,9 @@ class SPAStaticFiles(StaticFiles):
             return await super().get_response(path, scope)
         except (HTTPException, StarletteHTTPException) as ex:
             if ex.status_code == 404:
-                if path.endswith(".js"):
-                    # Return 404 for javascript files
+                # Only SPA routes (without a file extension) should fall back to index.html.
+                # Static assets must keep 404 to avoid returning HTML with the wrong MIME type.
+                if os.path.splitext(path)[1]:
                     raise ex
                 else:
                     return await super().get_response("index.html", scope)

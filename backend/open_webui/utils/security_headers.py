@@ -79,11 +79,14 @@ def set_xframe(value: str):
 
 # Set Permissions-Policy response header
 def set_permissions_policy(value: str):
-    pattern = r"^(?:(accelerometer|autoplay|camera|clipboard-read|clipboard-write|fullscreen|geolocation|gyroscope|magnetometer|microphone|midi|payment|picture-in-picture|sync-xhr|usb|xr-spatial-tracking)=\((self)?\),?)*$"
-    match = re.match(pattern, value, re.IGNORECASE)
-    if not match:
-        value = "none"
-    return {"Permissions-Policy": value}
+    # Keep this validation permissive because browser syntax evolves and may include
+    # origins, wildcards, quoted tokens, or new directives.
+    # Invalid values should not silently disable all permissions.
+    pattern = r"^[\w-]+\s*=\s*\([^)]*\)(\s*,\s*[\w-]+\s*=\s*\([^)]*\))*$"
+    normalized = value.strip()
+    if not re.match(pattern, normalized):
+        return {}
+    return {"Permissions-Policy": normalized}
 
 
 # Set Referrer-Policy response header

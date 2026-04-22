@@ -94,6 +94,7 @@ from open_webui.routers import (
     users,
     utils,
     scim,
+    conversation_agents,
 )
 
 from open_webui.routers.retrieval import (
@@ -203,6 +204,7 @@ from open_webui.config import (
     AUDIO_TTS_AZURE_SPEECH_REGION,
     AUDIO_TTS_AZURE_SPEECH_BASE_URL,
     AUDIO_TTS_AZURE_SPEECH_OUTPUT_FORMAT,
+    AUDIO_TTS_MOSS_API_BASE_URL,
     PLAYWRIGHT_WS_URL,
     PLAYWRIGHT_TIMEOUT,
     FIRECRAWL_API_BASE_URL,
@@ -1168,6 +1170,7 @@ app.state.config.TTS_SPLIT_ON = AUDIO_TTS_SPLIT_ON
 app.state.config.TTS_AZURE_SPEECH_REGION = AUDIO_TTS_AZURE_SPEECH_REGION
 app.state.config.TTS_AZURE_SPEECH_BASE_URL = AUDIO_TTS_AZURE_SPEECH_BASE_URL
 app.state.config.TTS_AZURE_SPEECH_OUTPUT_FORMAT = AUDIO_TTS_AZURE_SPEECH_OUTPUT_FORMAT
+app.state.config.TTS_MOSS_API_BASE_URL = AUDIO_TTS_MOSS_API_BASE_URL
 
 
 app.state.faster_whisper_model = None
@@ -1389,6 +1392,11 @@ app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
 app.include_router(channels.router, prefix="/api/v1/channels", tags=["channels"])
 app.include_router(chats.router, prefix="/api/v1/chats", tags=["chats"])
 app.include_router(notes.router, prefix="/api/v1/notes", tags=["notes"])
+app.include_router(
+    conversation_agents.router,
+    prefix="/api/v1/conversation-agents",
+    tags=["conversation-agents"],
+)
 
 
 app.include_router(models.router, prefix="/api/v1/models", tags=["models"])

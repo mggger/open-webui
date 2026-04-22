@@ -3787,6 +3787,12 @@ AUDIO_TTS_AZURE_SPEECH_OUTPUT_FORMAT = PersistentConfig(
     ),
 )
 
+AUDIO_TTS_MOSS_API_BASE_URL = PersistentConfig(
+    "AUDIO_TTS_MOSS_API_BASE_URL",
+    "audio.tts.moss.api_base_url",
+    os.getenv("AUDIO_TTS_MOSS_API_BASE_URL", "http://localhost:8000"),
+)
+
 
 ####################################
 # LDAP

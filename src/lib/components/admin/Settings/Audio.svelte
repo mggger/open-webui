@@ -7,6 +7,7 @@
 	import {
 		getAudioConfig,
 		updateAudioConfig,
+		getMossHealth,
 		getModels as _getModels,
 		getVoices as _getVoices
 	} from '$lib/apis/audio';
@@ -37,6 +38,33 @@
 	let TTS_AZURE_SPEECH_REGION = '';
 	let TTS_AZURE_SPEECH_BASE_URL = '';
 	let TTS_AZURE_SPEECH_OUTPUT_FORMAT = '';
+	let TTS_MOSS_API_BASE_URL = '';
+	let mossHealthStatus: 'unknown' | 'checking' | 'ok' | 'loading' | 'error' = 'unknown';
+	let mossHealthDetail = '';
+
+	const checkMossHealth = async () => {
+		mossHealthStatus = 'checking';
+		mossHealthDetail = '';
+		try {
+			const res = await getMossHealth(localStorage.token);
+			if (!res?.reachable) {
+				mossHealthStatus = 'error';
+				mossHealthDetail = res?.error || res?.status || 'unreachable';
+				return;
+			}
+			if (res.status === 'ok') {
+				mossHealthStatus = 'ok';
+			} else if (res.status === 'loading') {
+				mossHealthStatus = 'loading';
+			} else {
+				mossHealthStatus = 'error';
+				mossHealthDetail = res.status;
+			}
+		} catch (e) {
+			mossHealthStatus = 'error';
+			mossHealthDetail = typeof e === 'string' ? e : `${e}`;
+		}
+	};
 
 	let STT_OPENAI_API_BASE_URL = '';
 	let STT_OPENAI_API_KEY = '';
@@ -124,6 +152,7 @@
 				AZURE_SPEECH_REGION: TTS_AZURE_SPEECH_REGION,
 				AZURE_SPEECH_BASE_URL: TTS_AZURE_SPEECH_BASE_URL,
 				AZURE_SPEECH_OUTPUT_FORMAT: TTS_AZURE_SPEECH_OUTPUT_FORMAT,
+				MOSS_API_BASE_URL: TTS_MOSS_API_BASE_URL,
 				SPLIT_ON: TTS_SPLIT_ON
 			},
 			stt: {
@@ -176,6 +205,7 @@
 			TTS_AZURE_SPEECH_REGION = res.tts.AZURE_SPEECH_REGION;
 			TTS_AZURE_SPEECH_BASE_URL = res.tts.AZURE_SPEECH_BASE_URL;
 			TTS_AZURE_SPEECH_OUTPUT_FORMAT = res.tts.AZURE_SPEECH_OUTPUT_FORMAT;
+			TTS_MOSS_API_BASE_URL = res.tts.MOSS_API_BASE_URL ?? '';
 
 			STT_OPENAI_API_BASE_URL = res.stt.OPENAI_API_BASE_URL;
 			STT_OPENAI_API_KEY = res.stt.OPENAI_API_KEY;
@@ -528,6 +558,7 @@
 							<option value="openai">{$i18n.t('OpenAI')}</option>
 							<option value="elevenlabs">{$i18n.t('ElevenLabs')}</option>
 							<option value="azure">{$i18n.t('Azure AI Speech')}</option>
+							<option value="moss">{$i18n.t('MOSS-TTS-Nano')}</option>
 						</select>
 					</div>
 				</div>
@@ -584,6 +615,47 @@
 								</div>
 							</div>
 						</div>
+					</div>
+				{:else if TTS_ENGINE === 'moss'}
+					<div>
+						<div class=" mb-1.5 text-xs font-medium">
+							{$i18n.t('MOSS-TTS-Nano API Base URL')}
+						</div>
+						<div class="flex w-full gap-2">
+							<div class="flex-1">
+								<input
+									class="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
+									bind:value={TTS_MOSS_API_BASE_URL}
+									placeholder={$i18n.t('e.g., http://localhost:8000')}
+								/>
+							</div>
+							<button
+								type="button"
+								class="px-3 rounded-lg text-xs border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-900 transition"
+								on:click={checkMossHealth}
+							>
+								{$i18n.t('Check')}
+							</button>
+						</div>
+						{#if mossHealthStatus !== 'unknown'}
+							<div class="mt-1.5 text-xs flex items-center gap-1.5">
+								{#if mossHealthStatus === 'checking'}
+									<span class="size-1.5 rounded-full bg-gray-400"></span>
+									<span>{$i18n.t('Checking...')}</span>
+								{:else if mossHealthStatus === 'ok'}
+									<span class="size-1.5 rounded-full bg-green-500"></span>
+									<span>{$i18n.t('Ready')}</span>
+								{:else if mossHealthStatus === 'loading'}
+									<span class="size-1.5 rounded-full bg-yellow-500"></span>
+									<span>{$i18n.t('Model is loading')}</span>
+								{:else}
+									<span class="size-1.5 rounded-full bg-red-500"></span>
+									<span>{$i18n.t('Unreachable')}{mossHealthDetail
+											? ` — ${mossHealthDetail}`
+											: ''}</span>
+								{/if}
+							</div>
+						{/if}
 					</div>
 				{/if}
 

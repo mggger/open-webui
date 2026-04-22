@@ -167,6 +167,38 @@ export const getModels = async (token: string = ''): Promise<AvailableModelsResp
 	return res;
 };
 
+export const getMossHealth = async (token: string = '') => {
+	let error = null;
+
+	const res = await fetch(`${AUDIO_API_BASE_URL}/moss/health`, {
+		method: 'GET',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			error = err?.detail ?? err;
+			console.error(err);
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res as {
+		reachable: boolean;
+		status: string;
+		base_url: string;
+		error?: string;
+	};
+};
+
 export const getVoices = async (token: string = '') => {
 	let error = null;
 

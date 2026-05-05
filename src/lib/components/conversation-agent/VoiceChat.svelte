@@ -16,14 +16,46 @@
 
 	const MIN_WORDS_PER_CHUNK = 8;
 
+	// Rolling-summary memory:
+	// once history grows past COMPACT_TRIGGER_TURNS messages, compact
+	// everything except the last COMPACT_KEEP_RECENT messages into a
+	// short factual summary stored in `memorySummary`. Compaction runs
+	// async after a turn finishes so it never blocks the user.
+	const COMPACT_TRIGGER_TURNS = 10;
+	const COMPACT_KEEP_RECENT = 6;
+
+	// Appended after the agent's own system_prompt so voice replies stay
+	// conversational: one question at a time, short, no markdown.
+	// Without this, a persona prompt like "ask the user their name, age,
+	// job, ..." causes the LLM to dump every question in one turn — the
+	// TTS plays them back-to-back and the user can't answer mid-stream.
+	const VOICE_DIALOG_STYLE_PROMPT = `
+
+# Voice conversation style (must follow)
+You are speaking to the user through a voice interface. Your reply will be read aloud by TTS.
+- Ask AT MOST ONE question per reply. Wait for the user's answer before asking the next one.
+- Keep each reply to 1-2 short spoken sentences. Never produce a list of questions.
+- Use plain spoken language. No markdown, no bullet points, no code blocks, no emojis.
+- If the persona above instructs you to collect multiple pieces of information, gather them ONE AT A TIME across multiple turns, not all at once.
+- Acknowledge the user's previous answer briefly before asking the next question, so the conversation feels natural.`;
+
 	const LOG_TAG = '[VoiceChat]';
 	const log = (...args: any[]) => console.log(LOG_TAG, ...args);
 	const warn = (...args: any[]) => console.warn(LOG_TAG, ...args);
 	const err = (...args: any[]) => console.error(LOG_TAG, ...args);
 
-	let status: 'idle' | 'connecting' | 'listening' | 'transcribing' | 'thinking' | 'speaking' | 'error' =
-		'idle';
+	let status:
+		| 'idle'
+		| 'connecting'
+		| 'listening'
+		| 'transcribing'
+		| 'thinking'
+		| 'speaking'
+		| 'compacting'
+		| 'error' = 'idle';
 	let history: Msg[] = [];
+	let memorySummary = '';
+	let compacting = false;
 
 	let audioStream: MediaStream | null = null;
 	let audioContext: AudioContext | null = null;
@@ -300,13 +332,83 @@
 		return [chunks, remainder];
 	};
 
+	const compactHistory = async () => {
+		if (compacting) return;
+		if (history.length <= COMPACT_TRIGGER_TURNS) return;
+
+		// Snapshot the slice we will compact. Anything appended to `history`
+		// while the LLM call is in flight (e.g. user speaks again) goes into
+		// the kept tail and is preserved by the post-merge slice below.
+		const snapshotLen = history.length - COMPACT_KEEP_RECENT;
+		if (snapshotLen <= 0) return;
+		const toCompact = history.slice(0, snapshotLen);
+
+		compacting = true;
+		log('compactHistory: start', {
+			toCompact: toCompact.length,
+			keepTail: COMPACT_KEEP_RECENT,
+			hadPriorSummary: !!memorySummary
+		});
+
+		const transcript = toCompact
+			.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+			.join('\n');
+
+		const instruction = memorySummary
+			? `You are maintaining a running memory of a voice conversation. Below is the previous memory summary, followed by newer turns that need to be folded in. Produce an UPDATED summary that preserves every concrete fact the user shared (names, numbers, preferences, decisions, open questions) and the assistant's promises or pending actions. Drop greetings and filler. Keep it under 200 words. Output ONLY the summary text, no preamble.\n\n--- Previous summary ---\n${memorySummary}\n\n--- New turns ---\n${transcript}`
+			: `Summarize this voice conversation so far. Preserve every concrete fact the user shared (names, numbers, preferences, decisions, open questions) and any promises or pending actions from the assistant. Drop greetings and filler. Keep it under 200 words. Output ONLY the summary text, no preamble.\n\n${transcript}`;
+
+		try {
+			const res = await fetch(`${WEBUI_BASE_URL}/api/chat/completions`, {
+				method: 'POST',
+				headers: {
+					Authorization: `Bearer ${localStorage.token}`,
+					'Content-Type': 'application/json'
+				},
+				credentials: 'include',
+				body: JSON.stringify({
+					model: agent.model_id,
+					messages: [{ role: 'user', content: instruction }],
+					stream: false
+				})
+			});
+			if (!res.ok) {
+				warn('compactHistory: LLM call failed', { status: res.status });
+				return;
+			}
+			const j = await res.json();
+			const summary: string = (j?.choices?.[0]?.message?.content ?? '').trim();
+			if (!summary) {
+				warn('compactHistory: empty summary, skipping');
+				return;
+			}
+
+			// Re-slice from the *current* history, not the snapshot — new
+			// messages may have been appended while the LLM call ran.
+			memorySummary = summary;
+			history = history.slice(snapshotLen);
+			log('compactHistory: done', {
+				summaryLen: summary.length,
+				newHistoryLen: history.length
+			});
+		} catch (e) {
+			err('compactHistory: failed', e);
+		} finally {
+			compacting = false;
+		}
+	};
+
 	const runLLM = async () => {
 		status = 'thinking';
 
 		const messages: Msg[] = [];
-		if (agent.system_prompt) {
-			messages.push({ role: 'system', content: agent.system_prompt });
-		}
+		const baseSystem = (agent.system_prompt || '').trim();
+		const memoryBlock = memorySummary
+			? `\n\n# Conversation memory so far\n${memorySummary}`
+			: '';
+		const systemContent =
+			(baseSystem || '') + memoryBlock + VOICE_DIALOG_STYLE_PROMPT;
+		messages.push({ role: 'system', content: systemContent.trim() });
 		messages.push(...history);
 
 		const body = {
@@ -453,6 +555,13 @@
 			history = [...history, { role: 'assistant', content: assistantFull }];
 		}
 
+		// Fire-and-forget: compact older turns into memorySummary if we've
+		// crossed the threshold. Runs in parallel with TTS playback so the
+		// user never waits on it.
+		if (history.length > COMPACT_TRIGGER_TURNS && !compacting) {
+			compactHistory();
+		}
+
 		// If nothing was enqueued (empty reply), start consumer anyway so it resolves.
 		if (!consumerStarted) {
 			consumerStarted = true;
@@ -537,24 +646,39 @@
 	};
 
 	$: statusLabel = (() => {
+		let base: string;
 		switch (status) {
 			case 'connecting':
-				return $i18n.t('Connecting...');
+				base = $i18n.t('Connecting...');
+				break;
 			case 'listening':
-				return hasStartedSpeaking
+				base = hasStartedSpeaking
 					? $i18n.t('Listening...')
 					: $i18n.t('Listening... Speak anytime');
+				break;
 			case 'transcribing':
-				return $i18n.t('Transcribing...');
+				base = $i18n.t('Transcribing...');
+				break;
 			case 'thinking':
-				return $i18n.t('Thinking...');
+				base = $i18n.t('Thinking...');
+				break;
 			case 'speaking':
-				return $i18n.t('Speaking...');
+				base = $i18n.t('Speaking...');
+				break;
+			case 'compacting':
+				base = $i18n.t('Compacting memory...');
+				break;
 			case 'error':
-				return $i18n.t('Microphone unavailable');
+				base = $i18n.t('Microphone unavailable');
+				break;
 			default:
-				return $i18n.t('Starting...');
+				base = $i18n.t('Starting...');
 		}
+		// Surface background compaction without hiding the primary status.
+		if (compacting && status !== 'compacting' && status !== 'error') {
+			return `${base} · ${$i18n.t('compacting memory')}`;
+		}
+		return base;
 	})();
 
 	onMount(() => {

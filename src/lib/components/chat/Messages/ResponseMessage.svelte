@@ -304,25 +304,37 @@ let showRateComment = false;
 					}
 				}
 			} else {
-				for (const [idx, sentence] of messageContentParts.entries()) {
-					const res = await synthesizeOpenAISpeech(
-						localStorage.token,
-						$settings?.audio?.tts?.defaultVoice === $config.audio.tts.voice
-							? ($settings?.audio?.tts?.voice ?? $config?.audio?.tts?.voice)
-							: $config?.audio?.tts?.voice,
-						sentence
-					).catch((error) => {
-						console.error(error);
-						toast.error(`${error}`);
+				// Fan out all synthesis requests in parallel so a multi-replica
+				// TTS backend (e.g. 4x GPU) actually gets to use all replicas.
+				// Then await them in original order to preserve playback order —
+				// AudioQueue starts playing as soon as the first url arrives.
+				const voice =
+					$settings?.audio?.tts?.defaultVoice === $config.audio.tts.voice
+						? ($settings?.audio?.tts?.voice ?? $config?.audio?.tts?.voice)
+						: $config?.audio?.tts?.voice;
 
+				const pending = messageContentParts.map((sentence) =>
+					synthesizeOpenAISpeech(localStorage.token, voice, sentence).catch((error) => {
+						console.error(error);
+						return { __error: error };
+					})
+				);
+
+				for (const promise of pending) {
+					if (!speaking) break;
+					const res = await promise;
+					if (!speaking) break;
+
+					if (res && (res as any).__error) {
+						toast.error(`${(res as any).__error}`);
 						speaking = false;
 						loadingSpeech = false;
-					});
+						break;
+					}
 
-					if (res && speaking) {
-						const blob = await res.blob();
+					if (res) {
+						const blob = await (res as Response).blob();
 						const url = URL.createObjectURL(blob);
-
 						$audioQueue.enqueue(url);
 						loadingSpeech = false;
 					}

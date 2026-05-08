@@ -42,6 +42,7 @@
 	let prefixId = '';
 	let enable = true;
 	let apiVersion = '';
+	let maxModelLen: number | '' = 32768;
 
 	let headers = '';
 
@@ -183,6 +184,9 @@
 				connection_type: connectionType,
 				auth_type,
 				headers: headers ? JSON.parse(headers) : undefined,
+				...(!ollama && maxModelLen !== '' && Number(maxModelLen) > 0
+					? { max_model_len: Number(maxModelLen) }
+					: {}),
 				...(!ollama && azure ? { azure: true, api_version: apiVersion } : {})
 			}
 		};
@@ -198,6 +202,7 @@
 		prefixId = '';
 		tags = [];
 		modelIds = [];
+		maxModelLen = 32768;
 	};
 
 	const init = () => {
@@ -214,6 +219,7 @@
 			tags = connection.config?.tags ?? [];
 			prefixId = connection.config?.prefix_id ?? '';
 			modelIds = connection.config?.model_ids ?? [];
+			maxModelLen = connection.config?.max_model_len ?? 32768;
 
 			if (ollama) {
 				connectionType = connection.config?.connection_type ?? 'local';
@@ -469,6 +475,38 @@
 								</div>
 							</div>
 						</div>
+
+						{#if !ollama}
+							<div class="flex gap-2 mt-2">
+								<div class="flex flex-col w-full">
+									<label
+										for="max-model-len-input"
+										class={`mb-0.5 text-xs text-gray-500
+									${($settings?.highContrastMode ?? false) ? 'text-gray-800 dark:text-gray-100' : ''}`}
+										>{$i18n.t('Max Model Length')}</label
+									>
+
+									<div class="flex-1">
+										<Tooltip
+											content={$i18n.t(
+												"Upstream context window in tokens (e.g. 32768 for vLLM's --max-model-len). Older messages will be dropped automatically when the prompt exceeds this limit. Leave empty to disable."
+											)}
+										>
+											<input
+												class={`w-full text-sm bg-transparent ${($settings?.highContrastMode ?? false) ? 'placeholder:text-gray-700 dark:placeholder:text-gray-100' : 'outline-hidden placeholder:text-gray-300 dark:placeholder:text-gray-700'}`}
+												type="number"
+												min="0"
+												step="1"
+												id="max-model-len-input"
+												bind:value={maxModelLen}
+												placeholder={$i18n.t('e.g. 32768')}
+												autocomplete="off"
+											/>
+										</Tooltip>
+									</div>
+								</div>
+							</div>
+						{/if}
 
 						{#if !ollama && !direct}
 							<div class="flex flex-row justify-between items-center w-full mt-2">

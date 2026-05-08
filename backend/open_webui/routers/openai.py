@@ -46,6 +46,10 @@ from open_webui.utils.misc import (
     convert_logit_bias_input_to_json,
     stream_chunks_handler,
 )
+from open_webui.utils.context_window import (
+    apply_context_budget,
+    format_truncation_notice,
+)
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access
@@ -793,6 +797,50 @@ def convert_to_azure_payload(url, payload: dict, api_version: str):
     return url, payload
 
 
+def _prepend_truncation_to_stream(upstream, notice: dict, model: str):
+    """Yield a synthetic SSE chunk carrying the truncation notice, then upstream."""
+
+    async def _gen():
+        text = format_truncation_notice(notice, lang="en")
+        chunk = {
+            "id": "ctx-trunc-notice",
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": text},
+                    "finish_reason": None,
+                }
+            ],
+        }
+        sse = "data: " + json.dumps(chunk, ensure_ascii=False) + "\n\n"
+        yield sse.encode("utf-8")
+        async for item in upstream:
+            yield item
+
+    return _gen()
+
+
+def _prepend_truncation_to_response(response: dict, notice: dict) -> None:
+    """Mutate a non-streaming response so the notice is shown before content."""
+    text = format_truncation_notice(notice, lang="en")
+    choices = response.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return
+    first = choices[0]
+    msg = first.get("message") if isinstance(first, dict) else None
+    if not isinstance(msg, dict):
+        return
+    content = msg.get("content")
+    if isinstance(content, str):
+        msg["content"] = text + content
+    elif isinstance(content, list):
+        msg["content"] = [{"type": "text", "text": text}] + content
+    else:
+        msg["content"] = text
+
+
 @router.post("/chat/completions")
 async def generate_chat_completion(
     request: Request,
@@ -890,6 +938,33 @@ async def generate_chat_completion(
     if "max_tokens" in payload and "max_completion_tokens" in payload:
         del payload["max_tokens"]
 
+    # Enforce upstream context window (e.g. self-hosted vLLM with --max-model-len).
+    # If the connection config declares a max_model_len, drop the oldest non-system
+    # messages until the prompt + reserved output fit, and clamp max_tokens.
+    # Defaults to 32768 to match the in-house vLLM deployment; explicitly set to 0
+    # in the connection config to disable.
+    DEFAULT_MAX_MODEL_LEN = 32768
+    truncation_notice = None
+    max_model_len = api_config.get("max_model_len", DEFAULT_MAX_MODEL_LEN)
+    model_max_lens = api_config.get("model_max_lens") or {}
+    if isinstance(model_max_lens, dict) and payload.get("model") in model_max_lens:
+        max_model_len = model_max_lens[payload["model"]]
+    try:
+        max_model_len = int(max_model_len) if max_model_len is not None else 0
+    except (TypeError, ValueError):
+        max_model_len = 0
+    if max_model_len > 0:
+        min_output = int(api_config.get("min_output_tokens", 256) or 256)
+        truncation_notice = apply_context_budget(
+            payload, max_model_len=max_model_len, min_output_tokens=min_output
+        )
+        if truncation_notice:
+            log.info(
+                "Context truncated for model %s: %s",
+                payload.get("model"),
+                truncation_notice,
+            )
+
     # Convert the modified body back to JSON
     if "logit_bias" in payload:
         payload["logit_bias"] = json.loads(
@@ -914,6 +989,7 @@ async def generate_chat_completion(
     else:
         request_url = f"{url}/chat/completions"
 
+    model_for_notice = payload.get("model", "")
     payload = json.dumps(payload)
 
     r = None
@@ -938,8 +1014,13 @@ async def generate_chat_completion(
         # Check if response is SSE
         if "text/event-stream" in r.headers.get("Content-Type", ""):
             streaming = True
+            upstream = stream_chunks_handler(r.content)
+            if truncation_notice:
+                upstream = _prepend_truncation_to_stream(
+                    upstream, truncation_notice, model_for_notice
+                )
             return StreamingResponse(
-                stream_chunks_handler(r.content),
+                upstream,
                 status_code=r.status,
                 headers=dict(r.headers),
                 background=BackgroundTask(
@@ -959,6 +1040,8 @@ async def generate_chat_completion(
                 else:
                     return PlainTextResponse(status_code=r.status, content=response)
 
+            if truncation_notice and isinstance(response, dict):
+                _prepend_truncation_to_response(response, truncation_notice)
             return response
     except Exception as e:
         log.exception(e)

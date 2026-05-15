@@ -34,7 +34,7 @@
 			agent = await getConversationAgentById(localStorage.token, id);
 		} catch (e) {
 			console.error(e);
-			toast.error(typeof e === 'string' ? e : $i18n.t('Failed to load agent'));
+			toast.error(typeof e === 'string' ? e : $i18n.t('Failed to load scenario'));
 			await goto('/conversation');
 		}
 	};
@@ -47,25 +47,26 @@
 				description: detail.description ?? agent.description ?? '',
 				system_prompt: detail.system_prompt ?? agent.system_prompt ?? '',
 				model_id: detail.model_id ?? agent.model_id ?? null,
-				voice_config: detail.voice_config ?? agent.voice_config ?? {}
+				voice_config: detail.voice_config ?? agent.voice_config ?? {},
+				meta: detail.meta ?? agent.meta ?? {}
 			});
 			agent = updated;
-			toast.success($i18n.t('Agent saved'));
+			toast.success($i18n.t('Scenario saved'));
 		} catch (e) {
 			console.error(e);
-			toast.error(typeof e === 'string' ? e : $i18n.t('Failed to save agent'));
+			toast.error(typeof e === 'string' ? e : $i18n.t('Failed to save scenario'));
 		}
 	};
 
 	const handleDelete = async () => {
 		if (!agent) return;
-		if (!confirm($i18n.t('Delete this agent?'))) return;
+		if (!confirm($i18n.t('Delete this scenario?'))) return;
 		try {
 			await deleteConversationAgentById(localStorage.token, agent.id);
 			await goto('/conversation');
 		} catch (e) {
 			console.error(e);
-			toast.error(typeof e === 'string' ? e : $i18n.t('Failed to delete agent'));
+			toast.error(typeof e === 'string' ? e : $i18n.t('Failed to delete scenario'));
 		}
 	};
 
@@ -107,7 +108,7 @@
 				<div class="ml-2 py-0.5 self-center flex items-center justify-between w-full">
 					<div class="flex gap-1 text-sm font-medium py-1">
 						<a class="min-w-fit transition opacity-60 hover:opacity-100" href="/conversation">
-							{$i18n.t('Conversation Agent')}
+							{$i18n.t('Conversation Rehearsal')}
 						</a>
 						<span class="opacity-40">/</span>
 						<span class="min-w-fit">{agent.name}</span>
@@ -150,7 +151,7 @@
 				<AgentEditor
 					{agent}
 					models={$models ?? []}
-					on:save={(e) => handleSave(e.detail)}
+					onSave={handleSave}
 					on:delete={handleDelete}
 					on:start={() => (showChat = true)}
 				/>

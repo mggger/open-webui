@@ -95,6 +95,7 @@ from open_webui.routers import (
     utils,
     scim,
     conversation_agents,
+    vtiger,
 )
 
 from open_webui.routers.retrieval import (
@@ -295,6 +296,11 @@ from open_webui.config import (
     WEB_SEARCH_DOMAIN_FILTER_LIST,
     ENABLE_DEEP_SEARCH,
     DEEP_SEARCH_MAX_ITERATIONS,
+    ENABLE_VTIGER_CRM,
+    VTIGER_BASE_URL,
+    VTIGER_USERNAME,
+    VTIGER_ACCESS_KEY,
+    VTIGER_VERIFY_SSL,
     OLLAMA_CLOUD_WEB_SEARCH_API_KEY,
     JINA_API_KEY,
     SEARCHAPI_API_KEY,
@@ -937,6 +943,12 @@ app.state.config.BYPASS_WEB_SEARCH_WEB_LOADER = BYPASS_WEB_SEARCH_WEB_LOADER
 app.state.config.ENABLE_DEEP_SEARCH = ENABLE_DEEP_SEARCH
 app.state.config.DEEP_SEARCH_MAX_ITERATIONS = DEEP_SEARCH_MAX_ITERATIONS
 
+app.state.config.ENABLE_VTIGER_CRM = ENABLE_VTIGER_CRM
+app.state.config.VTIGER_BASE_URL = VTIGER_BASE_URL
+app.state.config.VTIGER_USERNAME = VTIGER_USERNAME
+app.state.config.VTIGER_ACCESS_KEY = VTIGER_ACCESS_KEY
+app.state.config.VTIGER_VERIFY_SSL = VTIGER_VERIFY_SSL
+
 app.state.config.ENABLE_GOOGLE_DRIVE_INTEGRATION = ENABLE_GOOGLE_DRIVE_INTEGRATION
 app.state.config.ENABLE_ONEDRIVE_INTEGRATION = ENABLE_ONEDRIVE_INTEGRATION
 
@@ -1382,6 +1394,7 @@ app.include_router(images.router, prefix="/api/v1/images", tags=["images"])
 app.include_router(audio.router, prefix="/api/v1/audio", tags=["audio"])
 app.include_router(retrieval.router, prefix="/api/v1/retrieval", tags=["retrieval"])
 app.include_router(deep_search.router, prefix="/api/v1/deep-search", tags=["deep-search"])
+app.include_router(vtiger.router, prefix="/api/v1/vtiger", tags=["vtiger"])
 
 app.include_router(configs.router, prefix="/api/v1/configs", tags=["configs"])
 

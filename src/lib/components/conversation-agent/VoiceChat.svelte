@@ -16,19 +16,9 @@
 
 	const MIN_WORDS_PER_CHUNK = 8;
 
-	// Rolling-summary memory:
-	// once history grows past COMPACT_TRIGGER_TURNS messages, compact
-	// everything except the last COMPACT_KEEP_RECENT messages into a
-	// short factual summary stored in `memorySummary`. Compaction runs
-	// async after a turn finishes so it never blocks the user.
 	const COMPACT_TRIGGER_TURNS = 10;
 	const COMPACT_KEEP_RECENT = 6;
 
-	// Appended after the agent's own system_prompt so voice replies stay
-	// conversational: one question at a time, short, no markdown.
-	// Without this, a persona prompt like "ask the user their name, age,
-	// job, ..." causes the LLM to dump every question in one turn — the
-	// TTS plays them back-to-back and the user can't answer mid-stream.
 	const VOICE_DIALOG_STYLE_PROMPT = `
 
 # Voice conversation style (must follow)
@@ -43,6 +33,25 @@ You are speaking to the user through a voice interface. Your reply will be read 
 	const log = (...args: any[]) => console.log(LOG_TAG, ...args);
 	const warn = (...args: any[]) => console.warn(LOG_TAG, ...args);
 	const err = (...args: any[]) => console.error(LOG_TAG, ...args);
+
+	// Scenario metadata pulled from agent.meta.scenario (set by AgentEditor).
+	// Used purely for UI — the LLM gets the full built system_prompt.
+	const scenario = ((agent.meta as any)?.scenario ?? {}) as {
+		counterpart_name?: string;
+		counterpart_role?: string;
+		counterpart_company?: string;
+	};
+	const counterpartName = scenario.counterpart_name || agent.name || $i18n.t('Counterpart');
+	const counterpartSubline = [scenario.counterpart_role, scenario.counterpart_company]
+		.filter(Boolean)
+		.join(' · ');
+	const initials = (counterpartName || '?')
+		.replace(/[^\p{L}\p{N}\s]/gu, '')
+		.split(/\s+/)
+		.filter(Boolean)
+		.slice(0, 2)
+		.map((s: string) => s[0]?.toUpperCase() ?? '')
+		.join('') || '?';
 
 	let status:
 		| 'idle'
@@ -68,9 +77,14 @@ You are speaking to the user through a voice interface. Your reply will be read 
 	let speakToken = 0;
 
 	let active = true;
-	let hasStartedSpeaking = false; // flips true on server speech_start, false on final
+	let hasStartedSpeaking = false;
 	let assistantSpeaking = false;
-	let suppressMic = false; // true while TTS plays -> drop PCM frames
+	let suppressMic = false;
+
+	// Debrief state.
+	let showDebrief = false;
+	let debriefLoading = false;
+	let debriefText = '';
 
 	const EMOJI_REGEX = /(\p{Extended_Pictographic}(?:️|‍)?)+/gu;
 
@@ -95,10 +109,8 @@ You are speaking to the user through a voice interface. Your reply will be read 
 		return text;
 	};
 
-
 	const cleanupAudio = () => {
 		if (currentAudio) {
-			log('cleanupAudio: pausing current audio');
 			currentAudio.pause();
 			currentAudio.src = '';
 			currentAudio = null;
@@ -110,12 +122,6 @@ You are speaking to the user through a voice interface. Your reply will be read 
 	};
 
 	const stopStream = () => {
-		log('stopStream called', {
-			hasWs: !!ws,
-			hasWorklet: !!workletNode,
-			hasStream: !!audioStream,
-			hasCtx: !!audioContext
-		});
 		if (ws) {
 			try {
 				ws.close();
@@ -153,8 +159,8 @@ You are speaking to the user through a voice interface. Your reply will be read 
 		}
 	};
 
-	const close = () => {
-		log('close() — user ended session');
+	const finalClose = () => {
+		log('finalClose — leaving session');
 		active = false;
 		speakToken++;
 		cleanupAudio();
@@ -162,10 +168,98 @@ You are speaking to the user through a voice interface. Your reply will be read 
 		dispatch('close');
 	};
 
+	// "End" button: if there's a real conversation, show debrief first;
+	// otherwise leave immediately.
+	const endSession = () => {
+		log('endSession clicked', { historyLen: history.length });
+		// Stop the live audio loop right away — debrief uses its own LLM call.
+		speakToken++;
+		assistantSpeaking = false;
+		suppressMic = false;
+		cleanupAudio();
+		stopStream();
+		active = false; // prevent any pending startListening from reconnecting
+
+		const hasMeaningfulConvo = history.some((m) => m.role === 'user') && history.length >= 2;
+		if (hasMeaningfulConvo) {
+			runDebrief();
+		} else {
+			finalClose();
+		}
+	};
+
+	const runDebrief = async () => {
+		showDebrief = true;
+		debriefLoading = true;
+		debriefText = '';
+
+		const transcript = history
+			.map((m) => `${m.role === 'user' ? 'You' : counterpartName}: ${m.content}`)
+			.join('\n');
+
+		const memoryBlock = memorySummary
+			? `\n\nEarlier conversation summary:\n${memorySummary}`
+			: '';
+
+		const prompt = `You are a communication coach reviewing a role-play conversation the user just completed. The user was practicing for a real business interaction. The "counterpart" (${counterpartName}) was being played by an AI based on a scenario the user set up.
+
+Give the user a debrief in plain spoken language. Use these sections, in this exact order, each with a short heading:
+
+**What went well**
+2-3 specific things the user did effectively. Quote a brief phrase if useful.
+
+**What to work on**
+2-3 specific, actionable suggestions. Focus on what the user said or didn't say.
+
+**${counterpartName}'s real concerns**
+What did the counterpart actually care about under the surface? What objections or worries did they signal?
+
+**One thing to try next time**
+A single concrete tactic for next rehearsal.
+
+Keep it concise — under 250 words total. Be direct and honest, not flattering. No emojis.${memoryBlock}
+
+--- Transcript ---
+${transcript}`;
+
+		try {
+			const res = await fetch(`${WEBUI_BASE_URL}/api/chat/completions`, {
+				method: 'POST',
+				headers: {
+					Authorization: `Bearer ${localStorage.token}`,
+					'Content-Type': 'application/json'
+				},
+				credentials: 'include',
+				body: JSON.stringify({
+					model: agent.model_id,
+					messages: [{ role: 'user', content: prompt }],
+					stream: false
+				})
+			});
+			if (!res.ok) {
+				let detail = `HTTP ${res.status}`;
+				try {
+					const j = await res.json();
+					detail = j?.detail ?? detail;
+				} catch {}
+				err('debrief failed', detail);
+				debriefText = $i18n.t('Could not generate debrief: {{err}}', {
+					err: typeof detail === 'string' ? detail : 'unknown error'
+				});
+				return;
+			}
+			const j = await res.json();
+			debriefText = (j?.choices?.[0]?.message?.content ?? '').trim() ||
+				$i18n.t('No debrief returned.');
+		} catch (e) {
+			err('debrief threw', e);
+			debriefText = $i18n.t('Could not generate debrief.');
+		} finally {
+			debriefLoading = false;
+		}
+	};
+
 	const wsUrl = (): string => {
-		// WEBUI_BASE_URL is `http://<host>:8080` in dev and `""` in prod.
-		// We derive the WS scheme (ws/wss) from the resolved origin so it
-		// matches the backend location, not the vite dev server.
 		const httpBase = WEBUI_BASE_URL || window.location.origin;
 		const wsBase = httpBase.replace(/^http/, 'ws');
 		const token = encodeURIComponent(localStorage.token || '');
@@ -176,19 +270,15 @@ You are speaking to the user through a voice interface. Your reply will be read 
 	};
 
 	const startListening = async () => {
-		log('startListening() called', { active, status });
 		if (!active) return;
 		if (status === 'listening' || status === 'thinking' || status === 'transcribing') {
-			log('startListening: already busy, skipping', { status });
 			return;
 		}
 
 		status = 'connecting';
 		hasStartedSpeaking = false;
 
-		// 1) Mic
 		try {
-			log('requesting getUserMedia');
 			audioStream = await navigator.mediaDevices.getUserMedia({
 				audio: {
 					echoCancellation: true,
@@ -196,7 +286,6 @@ You are speaking to the user through a voice interface. Your reply will be read 
 					autoGainControl: true
 				}
 			});
-			log('getUserMedia success');
 		} catch (e) {
 			err('getUserMedia failed', e);
 			toast.error($i18n.t('Microphone access denied'));
@@ -204,15 +293,12 @@ You are speaking to the user through a voice interface. Your reply will be read 
 			return;
 		}
 
-		// 2) AudioContext + PCM worklet
 		try {
 			audioContext = new AudioContext();
-			log('AudioContext created', { sampleRate: audioContext.sampleRate });
 			await audioContext.audioWorklet.addModule('/static/audio/pcm-worklet.js');
 			workletNode = new AudioWorkletNode(audioContext, 'pcm-worklet');
 			sourceNode = audioContext.createMediaStreamSource(audioStream);
 			sourceNode.connect(workletNode);
-			// Do NOT connect worklet to destination — we don't want to play back mic.
 		} catch (e) {
 			err('AudioWorklet setup failed', e);
 			toast.error($i18n.t('Audio setup failed'));
@@ -221,7 +307,6 @@ You are speaking to the user through a voice interface. Your reply will be read 
 			return;
 		}
 
-		// 3) WebSocket to backend
 		try {
 			ws = new WebSocket(wsUrl());
 			ws.binaryType = 'arraybuffer';
@@ -232,17 +317,12 @@ You are speaking to the user through a voice interface. Your reply will be read 
 			return;
 		}
 
-		ws.onopen = () => {
-			log('WS open');
-		};
+		ws.onopen = () => log('WS open');
 
-		ws.onerror = (e) => {
-			err('WS error', e);
-		};
+		ws.onerror = (e) => err('WS error', e);
 
 		ws.onclose = (ev) => {
 			log('WS close', { code: ev.code, reason: ev.reason });
-			// Reconnect if closed unexpectedly while still active & idle.
 			if (active && !assistantSpeaking && status !== 'thinking' && status !== 'transcribing') {
 				setTimeout(() => {
 					if (active && !ws) startListening();
@@ -257,7 +337,6 @@ You are speaking to the user through a voice interface. Your reply will be read 
 			} catch {
 				return;
 			}
-			log('WS msg', msg);
 			if (msg.type === 'ready') {
 				status = 'listening';
 			} else if (msg.type === 'speech_start') {
@@ -268,11 +347,9 @@ You are speaking to the user through a voice interface. Your reply will be read 
 				const userText = (msg.text || '').trim();
 				hasStartedSpeaking = false;
 				if (!userText) {
-					// back to listening on the same socket
 					status = 'listening';
 					return;
 				}
-				// Stop the mic before LLM/TTS round-trip.
 				stopStream();
 				history = [...history, { role: 'user', content: userText }];
 				await runLLM();
@@ -282,10 +359,9 @@ You are speaking to the user through a voice interface. Your reply will be read 
 			}
 		};
 
-		// 4) Wire worklet PCM frames -> WebSocket
 		workletNode.port.onmessage = (ev) => {
 			if (!ws || ws.readyState !== WebSocket.OPEN) return;
-			if (suppressMic) return; // skip while TTS plays
+			if (suppressMic) return;
 			ws.send(ev.data as ArrayBuffer);
 		};
 	};
@@ -293,7 +369,6 @@ You are speaking to the user through a voice interface. Your reply will be read 
 	const countWords = (s: string): number => {
 		const trimmed = s.trim();
 		if (!trimmed) return 0;
-		// Rough count: CJK chars each count as 1 "word", plus whitespace-separated latin tokens.
 		const cjk = (trimmed.match(/[一-鿿぀-ヿ가-힯]/g) || []).length;
 		const latin = trimmed
 			.replace(/[一-鿿぀-ヿ가-힯]/g, ' ')
@@ -303,11 +378,8 @@ You are speaking to the user through a voice interface. Your reply will be read 
 		return cjk + latin;
 	};
 
-	// Pull sentence-ish chunks from a growing buffer. Returns [chunks, remainder].
-	// A chunk is emitted only when it ends in terminal punctuation AND has >= MIN_WORDS_PER_CHUNK words.
-	// If `flushAll` is true, returns whatever is left even if short.
 	const extractChunks = (buf: string, flushAll: boolean): [string[], string] => {
-		const TERMS = new Set(['.', '!', '?', '。', '！', '？', '\n']);
+		const TERMS = new Set(['.', '!', '?', '。', '!', '?', '\n']);
 		const chunks: string[] = [];
 		let start = 0;
 		let cursor = 0;
@@ -320,7 +392,6 @@ You are speaking to the user through a voice interface. Your reply will be read 
 					chunks.push(candidate);
 					start = cursor;
 				}
-				// else: keep accumulating — candidate too short, roll into next sentence
 			}
 		}
 		const remainder = buf.slice(start);
@@ -336,19 +407,11 @@ You are speaking to the user through a voice interface. Your reply will be read 
 		if (compacting) return;
 		if (history.length <= COMPACT_TRIGGER_TURNS) return;
 
-		// Snapshot the slice we will compact. Anything appended to `history`
-		// while the LLM call is in flight (e.g. user speaks again) goes into
-		// the kept tail and is preserved by the post-merge slice below.
 		const snapshotLen = history.length - COMPACT_KEEP_RECENT;
 		if (snapshotLen <= 0) return;
 		const toCompact = history.slice(0, snapshotLen);
 
 		compacting = true;
-		log('compactHistory: start', {
-			toCompact: toCompact.length,
-			keepTail: COMPACT_KEEP_RECENT,
-			hadPriorSummary: !!memorySummary
-		});
 
 		const transcript = toCompact
 			.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
@@ -378,19 +441,10 @@ You are speaking to the user through a voice interface. Your reply will be read 
 			}
 			const j = await res.json();
 			const summary: string = (j?.choices?.[0]?.message?.content ?? '').trim();
-			if (!summary) {
-				warn('compactHistory: empty summary, skipping');
-				return;
-			}
+			if (!summary) return;
 
-			// Re-slice from the *current* history, not the snapshot — new
-			// messages may have been appended while the LLM call ran.
 			memorySummary = summary;
 			history = history.slice(snapshotLen);
-			log('compactHistory: done', {
-				summaryLen: summary.length,
-				newHistoryLen: history.length
-			});
 		} catch (e) {
 			err('compactHistory: failed', e);
 		} finally {
@@ -398,7 +452,10 @@ You are speaking to the user through a voice interface. Your reply will be read 
 		}
 	};
 
-	const runLLM = async () => {
+	// runLLM has two modes:
+	// - normal: user just spoke; messages already contains the new user turn
+	// - opener: no user turn yet, we ask the AI to start the conversation in character
+	const runLLM = async (opener = false) => {
 		status = 'thinking';
 
 		const messages: Msg[] = [];
@@ -411,15 +468,24 @@ You are speaking to the user through a voice interface. Your reply will be read 
 		messages.push({ role: 'system', content: systemContent.trim() });
 		messages.push(...history);
 
+		if (opener) {
+			// Nudge the model to break the ice as the counterpart. This is
+			// phrased as a user-role instruction so it sits *after* the
+			// system prompt and is harder for the model to ignore than a
+			// pure system instruction would be.
+			messages.push({
+				role: 'user',
+				content:
+					'[Stage direction, not part of the conversation: the call has just connected and no one has spoken yet. You speak first, in character, with one short natural opening line — a greeting and an opening prompt. One spoken sentence, maybe two. Do not narrate the stage direction.]'
+			});
+		}
+
 		const body = {
 			model: agent.model_id,
 			messages,
 			stream: true
 		};
-		log('runLLM: sending (stream)', { model: agent.model_id, msgCount: messages.length });
-		const t0 = performance.now();
 
-		// TTS producer/consumer state
 		const token = ++speakToken;
 		assistantSpeaking = true;
 		suppressMic = true;
@@ -433,10 +499,7 @@ You are speaking to the user through a voice interface. Your reply will be read 
 			try {
 				let i = 0;
 				while (true) {
-					if (token !== speakToken || !active) {
-						log('consumer: cancelled', { i });
-						return;
-					}
+					if (token !== speakToken || !active) return;
 					if (i >= synthQueue.length) {
 						if (producerDone) return;
 						await new Promise((r) => setTimeout(r, 50));
@@ -459,7 +522,6 @@ You are speaking to the user through a voice interface. Your reply will be read 
 		let producerDone = false;
 		const enqueueChunk = (chunk: string) => {
 			if (!chunk) return;
-			log('enqueue TTS chunk', { words: countWords(chunk), preview: chunk.slice(0, 80) });
 			synthQueue.push(synthesizeFull(chunk));
 			if (!consumerStarted) {
 				consumerStarted = true;
@@ -502,7 +564,6 @@ You are speaking to the user through a voice interface. Your reply will be read 
 
 			while (true) {
 				if (token !== speakToken || !active) {
-					log('runLLM: cancelled mid-stream');
 					try {
 						reader.cancel();
 					} catch {}
@@ -535,7 +596,6 @@ You are speaking to the user through a voice interface. Your reply will be read 
 				}
 			}
 
-			// Flush any remainder (may be < MIN_WORDS if LLM ended early)
 			const [tail] = extractChunks(pendingBuf, true);
 			pendingBuf = '';
 			for (const c of tail) enqueueChunk(c);
@@ -546,23 +606,14 @@ You are speaking to the user through a voice interface. Your reply will be read 
 			producerDone = true;
 		}
 
-		log('runLLM: stream complete', {
-			ms: Math.round(performance.now() - t0),
-			replyLen: assistantFull.length
-		});
-
 		if (assistantFull.trim()) {
 			history = [...history, { role: 'assistant', content: assistantFull }];
 		}
 
-		// Fire-and-forget: compact older turns into memorySummary if we've
-		// crossed the threshold. Runs in parallel with TTS playback so the
-		// user never waits on it.
 		if (history.length > COMPACT_TRIGGER_TURNS && !compacting) {
 			compactHistory();
 		}
 
-		// If nothing was enqueued (empty reply), start consumer anyway so it resolves.
 		if (!consumerStarted) {
 			consumerStarted = true;
 			playConsumer();
@@ -574,30 +625,16 @@ You are speaking to the user through a voice interface. Your reply will be read 
 			suppressMic = false;
 		}
 
-		log('runLLM: playback complete, resuming listening');
 		if (active && token === speakToken) startListening();
 	};
 
 	const synthesizeFull = async (text: string): Promise<string | null> => {
 		const cleaned = stripForTTS(text);
-		if (!cleaned) {
-			warn('TTS synth: empty after cleaning', { rawPreview: text.slice(0, 60) });
-			return null;
-		}
-		const t0 = performance.now();
+		if (!cleaned) return null;
 		try {
-			log('TTS synth start', { len: cleaned.length, preview: cleaned.slice(0, 80) });
 			const res = await synthesizeOpenAISpeech(localStorage.token, '', cleaned);
-			if (!res) {
-				warn('TTS synth returned null');
-				return null;
-			}
+			if (!res) return null;
 			const blob = await res.blob();
-			log('TTS synth ok', {
-				ms: Math.round(performance.now() - t0),
-				bytes: blob.size,
-				type: blob.type
-			});
 			return URL.createObjectURL(blob);
 		} catch (e) {
 			err('TTS synth failed', e);
@@ -611,7 +648,6 @@ You are speaking to the user through a voice interface. Your reply will be read 
 			currentAudio = a;
 			currentAudioUrl = url;
 			a.onended = () => {
-				log('audio playback ended');
 				URL.revokeObjectURL(url);
 				if (currentAudio === a) {
 					currentAudio = null;
@@ -628,16 +664,13 @@ You are speaking to the user through a voice interface. Your reply will be read 
 				}
 				resolve();
 			};
-			log('audio playback start');
 			a.play().catch((e) => {
 				err('audio.play() rejected', e);
 				resolve();
 			});
 		});
 
-
 	const interrupt = () => {
-		log('interrupt() — stopping TTS, resuming listen');
 		speakToken++;
 		assistantSpeaking = false;
 		suppressMic = false;
@@ -654,19 +687,19 @@ You are speaking to the user through a voice interface. Your reply will be read 
 			case 'listening':
 				base = hasStartedSpeaking
 					? $i18n.t('Listening...')
-					: $i18n.t('Listening... Speak anytime');
+					: $i18n.t('Your turn — speak when ready');
 				break;
 			case 'transcribing':
 				base = $i18n.t('Transcribing...');
 				break;
 			case 'thinking':
-				base = $i18n.t('Thinking...');
+				base = $i18n.t('{{name}} is thinking...', { name: counterpartName });
 				break;
 			case 'speaking':
-				base = $i18n.t('Speaking...');
+				base = $i18n.t('{{name}} is speaking...', { name: counterpartName });
 				break;
 			case 'compacting':
-				base = $i18n.t('Compacting memory...');
+				base = $i18n.t('Updating memory...');
 				break;
 			case 'error':
 				base = $i18n.t('Microphone unavailable');
@@ -674,48 +707,76 @@ You are speaking to the user through a voice interface. Your reply will be read 
 			default:
 				base = $i18n.t('Starting...');
 		}
-		// Surface background compaction without hiding the primary status.
 		if (compacting && status !== 'compacting' && status !== 'error') {
-			return `${base} · ${$i18n.t('compacting memory')}`;
+			return `${base} · ${$i18n.t('updating memory')}`;
 		}
 		return base;
 	})();
 
 	onMount(() => {
 		log('onMount', { agent: { id: agent.id, name: agent.name, model_id: agent.model_id } });
-		startListening();
+		// AI opens the conversation in character, then we start listening.
+		runLLM(true);
 	});
 
 	onDestroy(() => {
-		log('onDestroy');
 		active = false;
 		speakToken++;
 		cleanupAudio();
 		stopStream();
 	});
+
+	const copyDebrief = async () => {
+		try {
+			await navigator.clipboard.writeText(debriefText);
+			toast.success($i18n.t('Debrief copied'));
+		} catch {
+			toast.error($i18n.t('Copy failed'));
+		}
+	};
 </script>
 
-<div class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col">
-	<div class="flex items-center justify-between px-4 py-3 text-white">
-		<div class="text-sm opacity-80">{agent.name}</div>
+<div class="fixed inset-0 z-50 bg-gradient-to-b from-gray-900 to-black flex flex-col">
+	<!-- Header: counterpart card -->
+	<div class="px-4 py-3 flex items-center justify-between text-white border-b border-white/10">
+		<div class="flex items-center gap-3 min-w-0">
+			<div
+				class="size-10 rounded-full bg-white/15 flex items-center justify-center text-sm font-semibold shrink-0"
+				aria-hidden="true"
+			>
+				{initials}
+			</div>
+			<div class="min-w-0">
+				<div class="text-sm font-medium truncate">{counterpartName}</div>
+				{#if counterpartSubline}
+					<div class="text-xs text-white/60 truncate">{counterpartSubline}</div>
+				{/if}
+			</div>
+		</div>
 		<button
 			type="button"
-			class="text-sm px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 transition"
-			on:click={close}
+			class="text-sm px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition"
+			on:click={endSession}
 		>
 			{$i18n.t('End')}
 		</button>
 	</div>
 
+	<!-- Transcript -->
 	<div class="flex-1 overflow-y-auto px-4 py-6">
 		<div class="mx-auto max-w-2xl flex flex-col gap-3">
 			{#each history as m}
 				<div class="flex {m.role === 'user' ? 'justify-end' : 'justify-start'}">
 					<div
-						class="px-3 py-2 rounded-2xl max-w-[80%] text-sm {m.role === 'user'
+						class="px-3 py-2 rounded-2xl max-w-[80%] text-sm leading-relaxed {m.role === 'user'
 							? 'bg-blue-500 text-white'
 							: 'bg-white/10 text-white'}"
 					>
+						{#if m.role === 'assistant'}
+							<div class="text-[10px] uppercase tracking-wide text-white/50 mb-0.5">
+								{counterpartName}
+							</div>
+						{/if}
 						{m.content}
 					</div>
 				</div>
@@ -723,12 +784,15 @@ You are speaking to the user through a voice interface. Your reply will be read 
 
 			{#if history.length === 0}
 				<div class="text-center text-white/60 text-sm py-10">
-					{$i18n.t('Start talking — the agent will respond after you pause.')}
+					{$i18n.t('Connecting — {{name}} is about to speak first...', {
+						name: counterpartName
+					})}
 				</div>
 			{/if}
 		</div>
 	</div>
 
+	<!-- Controls -->
 	<div class="px-4 pb-6 pt-2 flex flex-col items-center gap-3">
 		<div class="text-white/80 text-sm h-5">{statusLabel}</div>
 
@@ -773,3 +837,60 @@ You are speaking to the user through a voice interface. Your reply will be read 
 		</div>
 	</div>
 </div>
+
+<!-- Debrief modal -->
+{#if showDebrief}
+	<div class="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4">
+		<div
+			class="w-full max-w-2xl max-h-[85vh] bg-white dark:bg-gray-900 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+		>
+			<div
+				class="px-5 py-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between"
+			>
+				<div>
+					<div class="text-base font-semibold">{$i18n.t('Meeting debrief')}</div>
+					<div class="text-xs text-gray-500 mt-0.5">
+						{$i18n.t('Coaching feedback on your conversation with {{name}}', {
+							name: counterpartName
+						})}
+					</div>
+				</div>
+			</div>
+			<div class="flex-1 overflow-y-auto px-5 py-4">
+				{#if debriefLoading}
+					<div class="flex items-center gap-2 text-sm text-gray-500">
+						<div
+							class="size-4 rounded-full border-2 border-gray-300 border-t-gray-700 animate-spin"
+						></div>
+						{$i18n.t('Reviewing the conversation...')}
+					</div>
+				{:else}
+					<div
+						class="text-sm whitespace-pre-wrap leading-relaxed text-gray-800 dark:text-gray-200"
+					>
+						{debriefText}
+					</div>
+				{/if}
+			</div>
+			<div
+				class="px-5 py-3 border-t border-gray-200 dark:border-gray-800 flex items-center justify-end gap-2"
+			>
+				<button
+					type="button"
+					class="px-3 py-1.5 rounded-lg text-sm border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-900 transition disabled:opacity-50"
+					disabled={debriefLoading || !debriefText}
+					on:click={copyDebrief}
+				>
+					{$i18n.t('Copy')}
+				</button>
+				<button
+					type="button"
+					class="px-4 py-1.5 rounded-lg text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition"
+					on:click={finalClose}
+				>
+					{$i18n.t('Close')}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}

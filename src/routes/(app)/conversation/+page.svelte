@@ -27,23 +27,24 @@
 			agents = await getConversationAgents(localStorage.token);
 		} catch (e) {
 			console.error(e);
-			toast.error(typeof e === 'string' ? e : $i18n.t('Failed to load agents'));
+			toast.error(typeof e === 'string' ? e : $i18n.t('Failed to load scenarios'));
 		}
 	};
 
 	const handleCreate = async () => {
 		try {
 			const agent = await createConversationAgent(localStorage.token, {
-				name: $i18n.t('New Agent'),
+				name: $i18n.t('New scenario'),
 				description: '',
 				system_prompt: '',
 				model_id: null,
-				voice_config: {}
+				voice_config: {},
+				meta: {}
 			});
 			await goto(`/conversation/${agent.id}`);
 		} catch (e) {
 			console.error(e);
-			toast.error(typeof e === 'string' ? e : $i18n.t('Failed to create agent'));
+			toast.error(typeof e === 'string' ? e : $i18n.t('Failed to create scenario'));
 		}
 	};
 
@@ -85,7 +86,7 @@
 				<div class="ml-2 py-0.5 self-center flex items-center justify-between w-full">
 					<div class="flex gap-1 text-sm font-medium py-1">
 						<a class="min-w-fit transition" href="/conversation">
-							{$i18n.t('Conversation Agent')}
+							{$i18n.t('Conversation Rehearsal')}
 						</a>
 					</div>
 
@@ -123,13 +124,20 @@
 
 		<div class="pb-1 flex-1 max-h-full overflow-y-auto @container">
 			<div class="mx-auto max-w-3xl px-4 md:px-8 py-6">
-				<div class="flex items-center justify-between mb-6">
-					<h1 class="text-xl font-semibold">{$i18n.t('Conversation Agents')}</h1>
+				<div class="flex items-start justify-between mb-6 gap-4">
+					<div>
+						<h1 class="text-xl font-semibold">{$i18n.t('Rehearsal scenarios')}</h1>
+						<p class="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
+							{$i18n.t(
+								'Practice your next conversation out loud. Set up the other side — a client, an interviewer, a tough customer — and run a live voice rehearsal before the real thing.'
+							)}
+						</p>
+					</div>
 					<button
-						class="px-3 py-1.5 rounded-lg text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition"
+						class="px-3 py-1.5 rounded-lg text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition whitespace-nowrap"
 						on:click={handleCreate}
 					>
-						{$i18n.t('New Agent')}
+						{$i18n.t('New scenario')}
 					</button>
 				</div>
 

@@ -1518,9 +1518,17 @@ async def get_voices(request: Request, user=Depends(get_verified_user)):
 ##########################################
 
 STREAM_SAMPLE_RATE = 16000
-VAD_CHUNK_SAMPLES = 512
+VAD_CHUNK_SAMPLES = 512  # 32ms per chunk at 16 kHz
 VAD_CHUNK_BYTES = VAD_CHUNK_SAMPLES * 2
-VAD_SILENCE_CHUNKS = 10  # ~320ms of trailing silence -> finalize
+# Trailing-silence window before we decide the user is done talking.
+# 800ms tolerates natural mid-sentence pauses (thinking, breath, "嗯…") so
+# we don't cut customers off mid-answer. The old value of 320ms was too
+# aggressive for conversational speech, especially in Chinese where there
+# are short pauses between clauses.
+VAD_SILENCE_CHUNKS = 25  # ~800ms of trailing silence -> finalize
+# Discard utterances that are too short to be real speech (sniffs, "嗯", clicks).
+# These usually come from background noise crossing the VAD threshold briefly.
+MIN_UTTERANCE_CHUNKS = 8  # ~256ms minimum
 MAX_UTTERANCE_SECONDS = 30
 
 SILERO_VAD_ONNX_URL = (
@@ -1702,6 +1710,19 @@ async def audio_stream(websocket: WebSocket):
         nonlocal utterance, speech_active, silence_run
         if not utterance:
             return
+
+        # Reject utterances shorter than MIN_UTTERANCE_CHUNKS: they are
+        # almost always noise (cough, click, brief "嗯") and turning them
+        # into transcripts derails the conversation. Reset state and keep
+        # listening rather than emitting a final.
+        min_bytes = MIN_UTTERANCE_CHUNKS * VAD_CHUNK_BYTES
+        if len(utterance) < min_bytes:
+            utterance = bytearray()
+            speech_active = False
+            silence_run = 0
+            vad.reset()
+            return
+
         pcm = bytes(utterance)
         utterance = bytearray()
         speech_active = False

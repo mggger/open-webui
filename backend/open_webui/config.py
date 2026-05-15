@@ -3014,6 +3014,40 @@ WEB_SEARCH_TRUST_ENV = PersistentConfig(
 )
 
 ####################################
+# Vtiger CRM
+####################################
+
+ENABLE_VTIGER_CRM = PersistentConfig(
+    "ENABLE_VTIGER_CRM",
+    "vtiger.enable",
+    os.getenv("ENABLE_VTIGER_CRM", "True").lower() == "true",
+)
+
+VTIGER_BASE_URL = PersistentConfig(
+    "VTIGER_BASE_URL",
+    "vtiger.base_url",
+    os.getenv("VTIGER_BASE_URL", ""),
+)
+
+VTIGER_USERNAME = PersistentConfig(
+    "VTIGER_USERNAME",
+    "vtiger.username",
+    os.getenv("VTIGER_USERNAME", ""),
+)
+
+VTIGER_ACCESS_KEY = PersistentConfig(
+    "VTIGER_ACCESS_KEY",
+    "vtiger.access_key",
+    os.getenv("VTIGER_ACCESS_KEY", ""),
+)
+
+VTIGER_VERIFY_SSL = PersistentConfig(
+    "VTIGER_VERIFY_SSL",
+    "vtiger.verify_ssl",
+    os.getenv("VTIGER_VERIFY_SSL", "True").lower() == "true",
+)
+
+####################################
 # Deep Search
 ####################################
 

@@ -6,6 +6,7 @@
 	import { settings } from '$lib/stores';
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import type { ConversationAgent } from '$lib/apis/conversation-agents';
+	import Markdown from '$lib/components/chat/Messages/Markdown.svelte';
 
 	const i18n = getContext('i18n');
 	const dispatch = createEventDispatcher();
@@ -866,9 +867,9 @@ ${transcript}`;
 					</div>
 				{:else}
 					<div
-						class="text-sm whitespace-pre-wrap leading-relaxed text-gray-800 dark:text-gray-200"
+						class="markdown-prose text-sm leading-relaxed text-gray-800 dark:text-gray-200"
 					>
-						{debriefText}
+						<Markdown id="conversation-agent-debrief" content={debriefText} />
 					</div>
 				{/if}
 			</div>

@@ -1115,6 +1115,14 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             )  # Required to handle system prompt variables
         except:
             pass
+    else:
+        # Always inject current date/time so the model has accurate temporal context
+        try:
+            form_data = apply_system_prompt_to_body(
+                None, form_data, metadata, user
+            )
+        except:
+            pass
 
     event_emitter = get_event_emitter(metadata)
     event_caller = get_event_call(metadata)

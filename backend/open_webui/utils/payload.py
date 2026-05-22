@@ -5,8 +5,41 @@ from open_webui.utils.misc import (
     replace_system_message_content,
 )
 
+from datetime import datetime
 from typing import Callable, Optional
 import json
+
+
+DATETIME_PREFIX_MARKER = "Current date and time:"
+
+
+def _current_datetime_prefix() -> str:
+    now = datetime.now()
+    return (
+        f"{DATETIME_PREFIX_MARKER} {now.strftime('%Y-%m-%d %H:%M')} "
+        f"({now.strftime('%A')}). "
+        "When you need to state the weekday for any other date "
+        "(e.g. scheduling, meeting notices, emails), compute it by "
+        "counting days from today's date above instead of guessing, "
+        "and double-check the result before answering."
+    )
+
+
+def _messages_already_have_datetime_prefix(messages: list) -> bool:
+    if not messages:
+        return False
+    first = messages[0]
+    if not isinstance(first, dict) or first.get("role") != "system":
+        return False
+    content = first.get("content")
+    if isinstance(content, str):
+        return DATETIME_PREFIX_MARKER in content
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                if DATETIME_PREFIX_MARKER in (item.get("text") or ""):
+                    return True
+    return False
 
 
 # inplace function: form_data is modified
@@ -17,26 +50,31 @@ def apply_system_prompt_to_body(
     user=None,
     replace: bool = False,
 ) -> dict:
-    if not system:
+    messages = form_data.get("messages", [])
+    inject_datetime = not _messages_already_have_datetime_prefix(messages)
+    datetime_prefix = _current_datetime_prefix() if inject_datetime else None
+
+    if system:
+        # Metadata (WebUI Usage)
+        if metadata:
+            variables = metadata.get("variables", {})
+            if variables:
+                system = prompt_variables_template(system, variables)
+
+        # Legacy (API Usage)
+        system = prompt_template(system, user)
+
+        if datetime_prefix:
+            system = f"{datetime_prefix}\n\n{system}"
+    elif datetime_prefix:
+        system = datetime_prefix
+    else:
         return form_data
 
-    # Metadata (WebUI Usage)
-    if metadata:
-        variables = metadata.get("variables", {})
-        if variables:
-            system = prompt_variables_template(system, variables)
-
-    # Legacy (API Usage)
-    system = prompt_template(system, user)
-
     if replace:
-        form_data["messages"] = replace_system_message_content(
-            system, form_data.get("messages", [])
-        )
+        form_data["messages"] = replace_system_message_content(system, messages)
     else:
-        form_data["messages"] = add_or_update_system_message(
-            system, form_data.get("messages", [])
-        )
+        form_data["messages"] = add_or_update_system_message(system, messages)
 
     return form_data
 

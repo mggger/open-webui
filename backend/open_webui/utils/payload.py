@@ -5,7 +5,7 @@ from open_webui.utils.misc import (
     replace_system_message_content,
 )
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, Optional
 import json
 
@@ -15,13 +15,21 @@ DATETIME_PREFIX_MARKER = "Current date and time:"
 
 def _current_datetime_prefix() -> str:
     now = datetime.now()
+    upcoming_days = 7
+    upcoming_lines = []
+    for offset in range(1, upcoming_days + 1):
+        day = now + timedelta(days=offset)
+        upcoming_lines.append(f"  {day.strftime('%Y-%m-%d')} = {day.strftime('%A')}")
+    upcoming_table = "\n".join(upcoming_lines)
     return (
         f"{DATETIME_PREFIX_MARKER} {now.strftime('%Y-%m-%d %H:%M')} "
-        f"({now.strftime('%A')}). "
-        "When you need to state the weekday for any other date "
-        "(e.g. scheduling, meeting notices, emails), compute it by "
-        "counting days from today's date above instead of guessing, "
-        "and double-check the result before answering."
+        f"({now.strftime('%A')}).\n"
+        f"Upcoming dates (use this table verbatim — do not recompute):\n"
+        f"{upcoming_table}\n"
+        "When you need to state the weekday for any date within the next week "
+        "(e.g. scheduling, meeting notices, emails), look it up directly in the "
+        "table above. For dates beyond this range, compute by counting days from "
+        "today's date and double-check the result before answering."
     )
 
 

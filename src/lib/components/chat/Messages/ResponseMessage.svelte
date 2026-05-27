@@ -578,266 +578,203 @@ let showRateComment = false;
 			}
 
 			let wrapper: HTMLDivElement | null = null;
-		const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
-			import('jspdf'),
-			import('html2canvas-pro')
-		]);
+			const [{ default: jsPDF }, { default: html2canvas }, { marked }] = await Promise.all([
+				import('jspdf'),
+				import('html2canvas-pro'),
+				import('marked')
+			]);
 
-		const captureScale = 2;
-		const isDarkMode = document.documentElement.classList.contains('dark');
-		const virtualWidth = 800;
-		let bgDataUrl: string | null = null;
-		let backgroundHeight = 320;
+			// A4 dimensions in mm
+			const pageWidthMM = 210;
+			const pageHeightMM = 297;
+			// First-page top offset (mm) — pushes body below printed logo/header art
+			const firstPageTopOffsetMM = 65;
+			// Side margin (mm)
+			const sideMarginMM = 15;
 
-		if (pdfBackground) {
-			try {
-				const res = await fetch(pdfBackground);
-				const blob = await res.blob();
-					bgDataUrl = await new Promise((resolve, reject) => {
+			// Compress the brand/header background to a small JPEG so embedding it
+			// does not blow up the PDF (source PNG is 4419×6250 → ~110MB when decoded).
+			let bgJpegDataUrl: string | null = null;
+			if (pdfBackground) {
+				try {
+					const res = await fetch(pdfBackground);
+					if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+					const blob = await res.blob();
+					const sourceDataUrl: string = await new Promise((resolve, reject) => {
 						const reader = new FileReader();
 						reader.onload = () => resolve(reader.result as string);
 						reader.onerror = reject;
 						reader.readAsDataURL(blob);
 					});
-
-					// Figure out a stable height for the header background so it will not stretch on tall pages
-					try {
-						const size = await new Promise<{ width: number; height: number }>((resolve, reject) => {
-							const img = new Image();
-							img.onload = () => resolve({ width: img.width, height: img.height });
-							img.onerror = reject;
-							img.src = bgDataUrl as string;
-						});
-
-						if (size.width > 0 && size.height > 0) {
-							backgroundHeight = Math.round((virtualWidth * size.height) / size.width);
-							backgroundHeight = Math.min(Math.max(backgroundHeight, 260), 420); // clamp to keep padding reasonable
-						}
-					} catch (err) {
-						console.warn('Unable to measure PDF background', err);
+					const srcImg = await new Promise<HTMLImageElement>((resolve, reject) => {
+						const img = new window.Image();
+						img.onload = () => resolve(img);
+						img.onerror = reject;
+						img.src = sourceDataUrl;
+					});
+					const targetWidth = 1240; // ~150dpi at A4 — sharp enough for flat artwork
+					const bgScale = targetWidth / srcImg.naturalWidth;
+					const targetHeight = Math.round(srcImg.naturalHeight * bgScale);
+					const bgCanvas = document.createElement('canvas');
+					bgCanvas.width = targetWidth;
+					bgCanvas.height = targetHeight;
+					const bgCtx = bgCanvas.getContext('2d');
+					if (bgCtx) {
+						bgCtx.fillStyle = '#ffffff';
+						bgCtx.fillRect(0, 0, targetWidth, targetHeight);
+						bgCtx.drawImage(srcImg, 0, 0, targetWidth, targetHeight);
+						bgJpegDataUrl = bgCanvas.toDataURL('image/jpeg', 0.85);
 					}
 				} catch (err) {
-					console.warn('Unable to load PDF background', err);
+					console.warn('Unable to prepare PDF background', err);
 				}
 			}
 
 			try {
+				// Render the AI markdown response to HTML using the project's `marked`
+				// dependency so headings, lists, code blocks, tables etc. keep structure.
+				const rawMarkdown = removeAllDetails(message.content ?? '');
+				const renderedHtml = (await marked.parse(rawMarkdown)) as string;
+
+				// Build an off-screen wrapper at A4-printable pixel width (794px ≈ 210mm @ 96dpi).
+				// No top padding here — the PDF page-1 slice is placed at firstPageTopOffsetMM
+				// from the page top, leaving room for the header artwork.
+				const virtualWidthPx = 794;
+				const sideMarginPx = Math.round((sideMarginMM / pageWidthMM) * virtualWidthPx);
+
 				wrapper = document.createElement('div');
-				wrapper.style.width = `${virtualWidth}px`;
-				wrapper.style.position = 'absolute';
-				wrapper.style.left = '-9999px';
+				wrapper.style.position = 'fixed';
+				wrapper.style.left = '-10000px';
 				wrapper.style.top = '0';
-				wrapper.style.backgroundColor = isDarkMode ? '#000' : '#fff';
-				// Keep top padding so logo/background has breathing room
-				wrapper.style.paddingTop = `${backgroundHeight + 50}px`;
-				// Small bottom padding to avoid clipping at page splits
-				wrapper.style.paddingBottom = '50px';
-				if (pdfBackground) {
-					wrapper.style.backgroundImage = `url(${pdfBackground})`;
-					wrapper.style.backgroundSize = `${virtualWidth}px auto`;
-					wrapper.style.backgroundRepeat = 'no-repeat';
-					wrapper.style.backgroundPosition = 'center 20px';
-				}
-				wrapper.classList.add('text-black');
-				wrapper.classList.add('dark:text-white');
+				wrapper.style.width = `${virtualWidthPx}px`;
+				wrapper.style.backgroundColor = '#ffffff';
+				wrapper.style.color = '#000000';
+				wrapper.style.boxSizing = 'border-box';
+				wrapper.style.paddingTop = '20px';
+				wrapper.style.paddingLeft = `${sideMarginPx}px`;
+				wrapper.style.paddingRight = `${sideMarginPx}px`;
+				wrapper.style.paddingBottom = '40px';
 				wrapper.classList.add('pdf-export-snapshot');
 
-				// Normalize typography and list spacing specifically for PDF captures
 				const style = document.createElement('style');
 				style.textContent = `
-					.pdf-export-snapshot { font-family: "Helvetica Neue", Arial, sans-serif; line-height: 1.6; }
-					.pdf-export-snapshot p { margin: 10px 0; }
-					.pdf-export-snapshot ul, .pdf-export-snapshot ol { padding-left: 24px; margin: 8px 0; list-style-position: outside; }
-					.pdf-export-snapshot li { margin: 6px 0; padding-left: 2px; }
-					.pdf-export-snapshot h1, .pdf-export-snapshot h2, .pdf-export-snapshot h3, .pdf-export-snapshot h4, .pdf-export-snapshot h5, .pdf-export-snapshot h6 { margin: 16px 0 10px; }
-					.pdf-export-snapshot table { width: 100%; border-collapse: collapse; margin: 12px 0; table-layout: fixed; }
-					.pdf-export-snapshot th, .pdf-export-snapshot td { border: 1px solid rgba(0,0,0,0.12); padding: 8px 10px; vertical-align: top; word-break: break-word; overflow-wrap: anywhere; }
-					.pdf-export-snapshot thead th { background: rgba(0,0,0,0.04); }
+					.pdf-export-snapshot { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.55; color: #000; }
+					.pdf-export-snapshot p { margin: 8px 0; }
+					.pdf-export-snapshot strong { font-weight: 700; }
+					.pdf-export-snapshot em { font-style: italic; }
+					.pdf-export-snapshot ul, .pdf-export-snapshot ol { padding-left: 24px; margin: 6px 0; list-style-position: outside; }
+					.pdf-export-snapshot li { margin: 4px 0; padding-left: 2px; }
+					.pdf-export-snapshot h1 { font-size: 22px; margin: 14px 0 8px; font-weight: 700; }
+					.pdf-export-snapshot h2 { font-size: 19px; margin: 14px 0 8px; font-weight: 700; }
+					.pdf-export-snapshot h3 { font-size: 17px; margin: 12px 0 6px; font-weight: 700; }
+					.pdf-export-snapshot h4, .pdf-export-snapshot h5, .pdf-export-snapshot h6 { font-size: 15px; margin: 10px 0 6px; font-weight: 700; }
+					.pdf-export-snapshot blockquote { border-left: 3px solid #ccc; padding-left: 10px; color: #333; margin: 8px 0; }
+					.pdf-export-snapshot code { font-family: "Menlo", "Consolas", monospace; font-size: 13px; background: #f4f4f4; padding: 1px 4px; border-radius: 3px; }
+					.pdf-export-snapshot pre { font-family: "Menlo", "Consolas", monospace; font-size: 12px; background: #f6f8fa; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; margin: 8px 0; }
+					.pdf-export-snapshot pre code { background: transparent; padding: 0; }
+					.pdf-export-snapshot a { color: #1a56db; text-decoration: underline; word-break: break-word; }
+					.pdf-export-snapshot table { width: 100%; border-collapse: collapse; margin: 10px 0; table-layout: fixed; }
+					.pdf-export-snapshot th, .pdf-export-snapshot td { border: 1px solid #ccc; padding: 6px 8px; vertical-align: top; word-break: break-word; }
+					.pdf-export-snapshot thead th { background: #f0f0f0; }
+					.pdf-export-snapshot img { max-width: 100%; height: auto; }
+					.pdf-export-snapshot hr { border: none; border-top: 1px solid #ddd; margin: 12px 0; }
 					.pdf-export-snapshot tr { break-inside: avoid; page-break-inside: avoid; }
-					.dark .pdf-export-snapshot th, .dark .pdf-export-snapshot td { border-color: rgba(255,255,255,0.18); }
-					.dark .pdf-export-snapshot thead th { background: rgba(255,255,255,0.08); }
 				`;
 				wrapper.appendChild(style);
 
-				const clonedElement = contentElement.cloneNode(true) as HTMLElement;
-				// Remove elements flagged to skip exporting (status history, citations, etc.)
-				clonedElement.querySelectorAll('[data-export-ignore="true"]').forEach((el) => el.remove());
-				// Strip hidden/thinking details and inline source chips from the PDF capture
-				clonedElement.querySelectorAll('details').forEach((el) => el.remove());
-				clonedElement.querySelectorAll('[data-source-token="true"]').forEach((el) => el.remove());
-				clonedElement.style.width = `${virtualWidth}px`;
-				clonedElement.style.padding = '0 20px 20px';
-				clonedElement.style.marginTop = '0';
-				wrapper.appendChild(clonedElement);
+				const body = document.createElement('div');
+				body.innerHTML = renderedHtml;
+				wrapper.appendChild(body);
 
 				document.body.appendChild(wrapper);
-				await new Promise((r) => setTimeout(r, 80));
+				await new Promise((r) => setTimeout(r, 50));
 
+				// Rasterize the wrapper. scale=1.5 balances size vs. clarity.
+				const captureScale = 1.5;
 				const canvas = await html2canvas(wrapper, {
-					backgroundColor: isDarkMode ? '#000' : '#fff',
+					backgroundColor: '#ffffff',
 					useCORS: true,
-					scale: captureScale
+					scale: captureScale,
+					logging: false,
+					windowWidth: virtualWidthPx
 				});
 
-				// Measure content while the wrapper is still in the DOM so we can trim empty trailing space
-				const wrapperRect = wrapper.getBoundingClientRect();
-				const blockBreakElements = Array.from(
-					clonedElement.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6,blockquote,pre,table,ul,ol')
-				);
-				const blockBreaks = blockBreakElements
-					.filter((el) => !el.closest('table') || el.tagName.toLowerCase() === 'table')
-					.map((el) => {
-						const rect = el.getBoundingClientRect();
-						return (rect.bottom - wrapperRect.top) * captureScale;
-					})
-					.filter((v) => v > 0)
-					.sort((a, b) => a - b);
-				const rowBreaks = Array.from(clonedElement.querySelectorAll('tr'))
-					.map((el) => {
-						const rect = el.getBoundingClientRect();
-						return (rect.bottom - wrapperRect.top) * captureScale;
-					})
-					.filter((v) => v > 0)
-					.sort((a, b) => a - b);
-
-				const contentBottomPx = Math.max(
-					(clonedElement.getBoundingClientRect().bottom - wrapperRect.top) * captureScale,
-					Math.max(...blockBreaks, 0),
-					Math.max(...rowBreaks, 0)
-				);
-
 				document.body.removeChild(wrapper);
+				wrapper = null;
 
-				const pdf = new jsPDF('p', 'mm', 'a4');
-				const pageWidthMM = 210;
-				const pageHeightMM = 297;
-				const pxPerPDFMM = canvas.width / pageWidthMM;
-				const cssToCanvasScale = canvas.width / virtualWidth;
-				const bottomMarginPx = Math.max(Math.round(24 * cssToCanvasScale), 0);
-				// Avoid overlap to prevent duplicated lines across pages; rely on padding instead
-				const overlapPx = 0;
-				const pagePixelHeight = Math.max(Math.floor(pxPerPDFMM * pageHeightMM) - bottomMarginPx, 50);
-				const totalHeight = Math.min(canvas.height, Math.max(Math.ceil(contentBottomPx + bottomMarginPx), 1));
-
-				const findCutFrom = (
-					breaks: number[],
-					startY: number,
-					target: number,
-					minAdvance: number,
-					windowBefore: number,
-					windowAfter: number
-				) => {
-					const candidatesAfter = breaks.filter((pos) => pos > target && pos <= target + windowAfter);
-					const candidatesBefore = breaks.filter((pos) => pos > startY + minAdvance && pos <= target);
-
-					if (candidatesBefore.length > 0) {
-						const bestBefore = candidatesBefore.reduce((best, pos) =>
-							target - pos < target - best ? pos : best
-						);
-						if (target - bestBefore <= windowBefore) {
-							return bestBefore;
-						}
-					}
-
-					if (candidatesAfter.length > 0) {
-						const bestAfter = candidatesAfter.reduce((best, pos) =>
-							pos - target < best - target ? pos : best
-						);
-						return bestAfter;
-					}
-
-					return null;
-				};
-
-				const findNextCut = (startY: number) => {
-					const target = startY + pagePixelHeight;
-					const minAdvance = 200 * captureScale; // keep distance from previous cut
-					const windowBefore = 400 * captureScale; // prefer breaks just before target
-					const windowAfter = 300 * captureScale; // otherwise, allow a bit after
-					const rowWindowAfter = 800 * captureScale; // allow extra space to keep rows intact
-
-					const rowCut = findCutFrom(
-						rowBreaks,
-						startY,
-						target,
-						minAdvance,
-						windowBefore,
-						rowWindowAfter
-					);
-					if (rowCut !== null) {
-						return rowCut;
-					}
-
-					const blockCut = findCutFrom(
-						blockBreaks,
-						startY,
-						target,
-						minAdvance,
-						windowBefore,
-						windowAfter
-					);
-					return blockCut ?? target;
-				};
-
+				// Slice the tall canvas into A4 pages, embed each slice as JPEG.
+				const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'p' });
+				const mmPerPx = pageWidthMM / canvas.width;
+				const pageHeightPx = Math.floor(pageHeightMM / mmPerPx);
+				// First-page body region starts below the header artwork
+				const firstPageTopOffsetPxOnCanvas = Math.round(firstPageTopOffsetMM / mmPerPx);
+				const totalHeightPx = canvas.height;
 				let offsetY = 0;
-				let page = 0;
+				let pageIndex = 0;
 
-				while (offsetY < totalHeight) {
-					const remainingHeight = totalHeight - offsetY;
-					const nextCut = findNextCut(offsetY);
-					const sliceHeight = Math.min(
-						pagePixelHeight,
-						remainingHeight,
-						Math.max(nextCut - offsetY, 120 * captureScale)
-					);
-					const isLastPage = remainingHeight <= pagePixelHeight;
-					const step = isLastPage ? remainingHeight : sliceHeight;
+				while (offsetY < totalHeightPx) {
+					// On page 1 the body area is shorter (top is reserved for the logo)
+					const availablePageHeightPx =
+						pageIndex === 0 ? pageHeightPx - firstPageTopOffsetPxOnCanvas : pageHeightPx;
+					const sliceHeightPx = Math.min(availablePageHeightPx, totalHeightPx - offsetY);
 					const pageCanvas = document.createElement('canvas');
 					pageCanvas.width = canvas.width;
-					pageCanvas.height = sliceHeight;
-
-					const ctx = pageCanvas.getContext('2d');
-					if (!ctx) {
-						throw new Error('Failed to get canvas context');
-					}
-					ctx.drawImage(
+					pageCanvas.height = sliceHeightPx;
+					const pageCtx = pageCanvas.getContext('2d');
+					if (!pageCtx) break;
+					pageCtx.fillStyle = '#ffffff';
+					pageCtx.fillRect(0, 0, canvas.width, sliceHeightPx);
+					pageCtx.drawImage(
 						canvas,
 						0,
 						offsetY,
 						canvas.width,
-						sliceHeight,
+						sliceHeightPx,
 						0,
 						0,
 						canvas.width,
-						sliceHeight
+						sliceHeightPx
 					);
 
-					const imgData = pageCanvas.toDataURL('image/jpeg', 0.8);
-					const imgHeightMM = (sliceHeight * pageWidthMM) / canvas.width;
+					if (pageIndex > 0) pdf.addPage();
 
-					if (page > 0) pdf.addPage();
-
-					if (page === 0 && bgDataUrl) {
-						pdf.addImage(bgDataUrl, 'PNG', 0, 0, pageWidthMM, pageHeightMM);
-					} else {
-						if (isDarkMode) {
-							pdf.setFillColor(0, 0, 0);
-							pdf.rect(0, 0, pageWidthMM, pageHeightMM, 'F');
-						} else {
-							pdf.setFillColor(255, 255, 255);
-							pdf.rect(0, 0, pageWidthMM, pageHeightMM, 'F');
-						}
+					// Page 1: paint the full-page brand background first, then the body
+					// slice gets drawn BELOW the header area so the logo stays visible.
+					if (pageIndex === 0 && bgJpegDataUrl) {
+						pdf.addImage(
+							bgJpegDataUrl,
+							'JPEG',
+							0,
+							0,
+							pageWidthMM,
+							pageHeightMM,
+							undefined,
+							'FAST'
+						);
 					}
 
-					pdf.addImage(imgData, 'JPEG', 0, 0, pageWidthMM, imgHeightMM);
+					const sliceHeightMM = sliceHeightPx * mmPerPx;
+					const sliceYMM = pageIndex === 0 ? firstPageTopOffsetMM : 0;
+					const sliceJpeg = pageCanvas.toDataURL('image/jpeg', 0.75);
+					pdf.addImage(
+						sliceJpeg,
+						'JPEG',
+						0,
+						sliceYMM,
+						pageWidthMM,
+						sliceHeightMM,
+						undefined,
+						'FAST'
+					);
 
-					offsetY += step;
-					page++;
+					offsetY += sliceHeightPx;
+					pageIndex += 1;
 				}
 
 				pdf.save(`${safeFileName}-response.pdf`);
 				exported = true;
-			} finally {
+			} catch (err) {
+				console.error('PDF export failed', err);
 				if (wrapper && wrapper.parentNode) {
 					wrapper.parentNode.removeChild(wrapper);
 				}

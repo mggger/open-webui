@@ -589,6 +589,9 @@ let showRateComment = false;
 			const pageHeightMM = 297;
 			// First-page top offset (mm) — pushes body below printed logo/header art
 			const firstPageTopOffsetMM = 65;
+			// Subsequent-page top/bottom margin (mm) — keeps body from hugging edges
+			const subsequentPageTopMM = 18;
+			const pageBottomMM = 15;
 			// Side margin (mm)
 			const sideMarginMM = 15;
 
@@ -689,6 +692,36 @@ let showRateComment = false;
 				document.body.appendChild(wrapper);
 				await new Promise((r) => setTimeout(r, 50));
 
+				// Collect "safe break" Y coordinates (in CSS px) between top-level
+				// block children so page breaks fall in the gap between blocks rather
+				// than cutting a paragraph or table row in half.
+				const wrapperTopPx = wrapper.getBoundingClientRect().top;
+				const breakablePx: number[] = [];
+				const collectBreaks = (root: HTMLElement) => {
+					Array.from(root.children).forEach((child) => {
+						if (!(child instanceof HTMLElement)) return;
+						const rect = child.getBoundingClientRect();
+						const topRel = rect.top - wrapperTopPx;
+						const bottomRel = rect.bottom - wrapperTopPx;
+						breakablePx.push(topRel);
+						// For tables/lists, also allow breaks between rows/items.
+						const tag = child.tagName.toLowerCase();
+						if (tag === 'table' || tag === 'ul' || tag === 'ol') {
+							const rows = child.querySelectorAll(
+								tag === 'table' ? 'tr' : ':scope > li'
+							);
+							rows.forEach((row) => {
+								if (row instanceof HTMLElement) {
+									breakablePx.push(row.getBoundingClientRect().top - wrapperTopPx);
+								}
+							});
+						}
+						breakablePx.push(bottomRel);
+					});
+				};
+				collectBreaks(body);
+				breakablePx.sort((a, b) => a - b);
+
 				// Rasterize the wrapper. scale=1.5 balances size vs. clarity.
 				const captureScale = 1.5;
 				const canvas = await html2canvas(wrapper, {
@@ -705,18 +738,49 @@ let showRateComment = false;
 				// Slice the tall canvas into A4 pages, embed each slice as JPEG.
 				const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'p' });
 				const mmPerPx = pageWidthMM / canvas.width;
-				const pageHeightPx = Math.floor(pageHeightMM / mmPerPx);
-				// First-page body region starts below the header artwork
-				const firstPageTopOffsetPxOnCanvas = Math.round(firstPageTopOffsetMM / mmPerPx);
 				const totalHeightPx = canvas.height;
+				// Convert mm thresholds to canvas-pixel-space so we can compare with breakpoints
+				const firstPageBodyHeightMM = pageHeightMM - firstPageTopOffsetMM - pageBottomMM;
+				const subsequentBodyHeightMM = pageHeightMM - subsequentPageTopMM - pageBottomMM;
+				const firstPageBodyHeightPx = Math.floor(firstPageBodyHeightMM / mmPerPx);
+				const subsequentBodyHeightPx = Math.floor(subsequentBodyHeightMM / mmPerPx);
+
+				// Breakable points were measured in CSS px before rasterizing. Scale to canvas px.
+				const breakableCanvasPx = breakablePx
+					.map((p) => Math.round(p * captureScale))
+					.filter((p) => p > 0 && p < totalHeightPx);
+
 				let offsetY = 0;
 				let pageIndex = 0;
 
 				while (offsetY < totalHeightPx) {
-					// On page 1 the body area is shorter (top is reserved for the logo)
-					const availablePageHeightPx =
-						pageIndex === 0 ? pageHeightPx - firstPageTopOffsetPxOnCanvas : pageHeightPx;
-					const sliceHeightPx = Math.min(availablePageHeightPx, totalHeightPx - offsetY);
+					const maxPageBodyPx =
+						pageIndex === 0 ? firstPageBodyHeightPx : subsequentBodyHeightPx;
+					const remainingPx = totalHeightPx - offsetY;
+
+					let sliceHeightPx: number;
+					if (remainingPx <= maxPageBodyPx) {
+						sliceHeightPx = remainingPx;
+					} else {
+						const hardLimit = offsetY + maxPageBodyPx;
+						// Pick the largest breakable point at or below hardLimit; fall back to hardLimit.
+						let chosen = -1;
+						for (let i = 0; i < breakableCanvasPx.length; i += 1) {
+							const p = breakableCanvasPx[i];
+							if (p <= offsetY) continue;
+							if (p > hardLimit) break;
+							chosen = p;
+						}
+						// Only use the breakpoint if it gives us a reasonable fill (>=40% of page).
+						// Otherwise just cut at hardLimit to avoid huge whitespace gaps.
+						const minFillPx = Math.floor(maxPageBodyPx * 0.4);
+						if (chosen > 0 && chosen - offsetY >= minFillPx) {
+							sliceHeightPx = chosen - offsetY;
+						} else {
+							sliceHeightPx = maxPageBodyPx;
+						}
+					}
+
 					const pageCanvas = document.createElement('canvas');
 					pageCanvas.width = canvas.width;
 					pageCanvas.height = sliceHeightPx;
@@ -754,7 +818,7 @@ let showRateComment = false;
 					}
 
 					const sliceHeightMM = sliceHeightPx * mmPerPx;
-					const sliceYMM = pageIndex === 0 ? firstPageTopOffsetMM : 0;
+					const sliceYMM = pageIndex === 0 ? firstPageTopOffsetMM : subsequentPageTopMM;
 					const sliceJpeg = pageCanvas.toDataURL('image/jpeg', 0.75);
 					pdf.addImage(
 						sliceJpeg,

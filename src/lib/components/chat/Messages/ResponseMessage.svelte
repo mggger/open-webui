@@ -587,8 +587,9 @@ let showRateComment = false;
 			// A4 dimensions in mm
 			const pageWidthMM = 210;
 			const pageHeightMM = 297;
-			// First-page top offset (mm) — pushes body below printed logo/header art
-			const firstPageTopOffsetMM = 65;
+			// First-page top offset (mm) — pushes body below printed logo/header art.
+			// The banner ends at ~73mm in the source artwork; 80mm leaves a clean gap.
+			const firstPageTopOffsetMM = 80;
 			// Subsequent-page top/bottom margin (mm) — keeps body from hugging edges
 			const subsequentPageTopMM = 18;
 			const pageBottomMM = 15;
@@ -615,9 +616,13 @@ let showRateComment = false;
 						img.onerror = reject;
 						img.src = sourceDataUrl;
 					});
+					// Build a canvas whose aspect ratio exactly matches A4 (210:297) and
+					// stretch the source image to fully fill it. The source PNG is
+					// already A4 proportioned (4419×6250 ≈ 0.7070) so the tiny stretch
+					// is not visible. Filling edge-to-edge ensures no rounding cuts off
+					// banner / artwork content.
 					const targetWidth = 1240; // ~150dpi at A4 — sharp enough for flat artwork
-					const bgScale = targetWidth / srcImg.naturalWidth;
-					const targetHeight = Math.round(srcImg.naturalHeight * bgScale);
+					const targetHeight = Math.round((targetWidth * pageHeightMM) / pageWidthMM);
 					const bgCanvas = document.createElement('canvas');
 					bgCanvas.width = targetWidth;
 					bgCanvas.height = targetHeight;

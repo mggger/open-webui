@@ -666,40 +666,42 @@
 					</div>
 				{/if}
 
-				<div class="">
-					<Tooltip content={$i18n.t('Conversation Agent')} placement="right">
-						<a
-							class=" cursor-pointer flex rounded-xl hover:bg-gray-100 dark:hover:bg-gray-850 transition group"
-							href="/conversation"
-							on:click={async (e) => {
-								e.stopImmediatePropagation();
-								e.preventDefault();
+				{#if $user?.role === 'admin'}
+					<div class="">
+						<Tooltip content={$i18n.t('Conversation Agent')} placement="right">
+							<a
+								class=" cursor-pointer flex rounded-xl hover:bg-gray-100 dark:hover:bg-gray-850 transition group"
+								href="/conversation"
+								on:click={async (e) => {
+									e.stopImmediatePropagation();
+									e.preventDefault();
 
-								goto('/conversation');
-								itemClickHandler();
-							}}
-							draggable="false"
-							aria-label={$i18n.t('Conversation Agent')}
-						>
-							<div class=" self-center flex items-center justify-center size-9">
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									fill="none"
-									viewBox="0 0 24 24"
-									stroke-width="1.5"
-									stroke="currentColor"
-									class="size-4.5"
-								>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z"
-									/>
-								</svg>
-							</div>
-						</a>
-					</Tooltip>
-				</div>
+									goto('/conversation');
+									itemClickHandler();
+								}}
+								draggable="false"
+								aria-label={$i18n.t('Conversation Agent')}
+							>
+								<div class=" self-center flex items-center justify-center size-9">
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+										stroke-width="1.5"
+										stroke="currentColor"
+										class="size-4.5"
+									>
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z"
+										/>
+									</svg>
+								</div>
+							</a>
+						</Tooltip>
+					</div>
+				{/if}
 
 				{#if $user?.role === 'admin' || $user?.permissions?.workspace?.models || $user?.permissions?.workspace?.knowledge || $user?.permissions?.workspace?.prompts || $user?.permissions?.workspace?.tools}
 					<div class="">
@@ -933,39 +935,41 @@
 						</div>
 					{/if}
 
-					<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
-						<a
-							id="sidebar-conversation-agent-button"
-							class="grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition"
-							href="/conversation"
-							on:click={itemClickHandler}
-							draggable="false"
-							aria-label={$i18n.t('Conversation Agent')}
-						>
-							<div class="self-center">
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									fill="none"
-									viewBox="0 0 24 24"
-									stroke-width="2"
-									stroke="currentColor"
-									class="size-4.5"
-								>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z"
-									/>
-								</svg>
-							</div>
-
-							<div class="flex self-center translate-y-[0.5px]">
-								<div class=" self-center text-sm font-primary">
-									{$i18n.t('Conversation Agent')}
+					{#if $user?.role === 'admin'}
+						<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
+							<a
+								id="sidebar-conversation-agent-button"
+								class="grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition"
+								href="/conversation"
+								on:click={itemClickHandler}
+								draggable="false"
+								aria-label={$i18n.t('Conversation Agent')}
+							>
+								<div class="self-center">
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+										stroke-width="2"
+										stroke="currentColor"
+										class="size-4.5"
+									>
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z"
+										/>
+									</svg>
 								</div>
-							</div>
-						</a>
-					</div>
+
+								<div class="flex self-center translate-y-[0.5px]">
+									<div class=" self-center text-sm font-primary">
+										{$i18n.t('Conversation Agent')}
+									</div>
+								</div>
+							</a>
+						</div>
+					{/if}
 
 					{#if $user?.role === 'admin' || $user?.permissions?.workspace?.models || $user?.permissions?.workspace?.knowledge || $user?.permissions?.workspace?.prompts || $user?.permissions?.workspace?.tools}
 						<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">

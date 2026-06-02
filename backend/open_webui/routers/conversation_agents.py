@@ -13,8 +13,7 @@ from open_webui.models.conversation_agents import (
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import SRC_LOG_LEVELS
 
-from open_webui.utils.auth import get_verified_user
-from open_webui.utils.access_control import has_access
+from open_webui.utils.auth import get_admin_user
 
 
 log = logging.getLogger(__name__)
@@ -29,10 +28,8 @@ router = APIRouter()
 
 
 @router.get("/", response_model=list[ConversationAgentModel])
-async def get_agents(request: Request, user=Depends(get_verified_user)):
-    if user.role == "admin":
-        return ConversationAgents.get_agents()
-    return ConversationAgents.get_agents_by_user_id(user.id)
+async def get_agents(request: Request, user=Depends(get_admin_user)):
+    return ConversationAgents.get_agents()
 
 
 ############################
@@ -44,7 +41,7 @@ async def get_agents(request: Request, user=Depends(get_verified_user)):
 async def create_new_agent(
     request: Request,
     form_data: ConversationAgentForm,
-    user=Depends(get_verified_user),
+    user=Depends(get_admin_user),
 ):
     try:
         return ConversationAgents.insert_new_agent(form_data, user.id)
@@ -63,7 +60,7 @@ async def create_new_agent(
 
 @router.get("/{id}", response_model=Optional[ConversationAgentModel])
 async def get_agent_by_id(
-    request: Request, id: str, user=Depends(get_verified_user)
+    request: Request, id: str, user=Depends(get_admin_user)
 ):
     agent = ConversationAgents.get_agent_by_id(id)
     if not agent:
@@ -71,15 +68,6 @@ async def get_agent_by_id(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
-
-    if user.role != "admin" and agent.user_id != user.id:
-        if not has_access(
-            user.id, type="read", access_control=agent.access_control
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=ERROR_MESSAGES.DEFAULT(),
-            )
 
     return agent
 
@@ -94,7 +82,7 @@ async def update_agent_by_id(
     request: Request,
     id: str,
     form_data: ConversationAgentUpdateForm,
-    user=Depends(get_verified_user),
+    user=Depends(get_admin_user),
 ):
     agent = ConversationAgents.get_agent_by_id(id)
     if not agent:
@@ -102,15 +90,6 @@ async def update_agent_by_id(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
-
-    if user.role != "admin" and agent.user_id != user.id:
-        if not has_access(
-            user.id, type="write", access_control=agent.access_control
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=ERROR_MESSAGES.DEFAULT(),
-            )
 
     try:
         return ConversationAgents.update_agent_by_id(id, form_data)
@@ -129,7 +108,7 @@ async def update_agent_by_id(
 
 @router.delete("/{id}/delete", response_model=bool)
 async def delete_agent_by_id(
-    request: Request, id: str, user=Depends(get_verified_user)
+    request: Request, id: str, user=Depends(get_admin_user)
 ):
     agent = ConversationAgents.get_agent_by_id(id)
     if not agent:
@@ -137,15 +116,6 @@ async def delete_agent_by_id(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
-
-    if user.role != "admin" and agent.user_id != user.id:
-        if not has_access(
-            user.id, type="write", access_control=agent.access_control
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=ERROR_MESSAGES.DEFAULT(),
-            )
 
     try:
         ConversationAgents.delete_agent_by_id(id)

@@ -71,6 +71,10 @@
 	};
 
 	onMount(async () => {
+		if ($user?.role !== 'admin') {
+			await goto('/');
+			return;
+		}
 		await loadAgent();
 		loaded = true;
 	});

@@ -5,8 +5,10 @@ that enforce a hard `max_model_len`.
 The upstream rejects requests where `prompt_tokens + max_tokens > max_model_len`
 with errors like `max_tokens must be at least 1, got -N`. We pre-emptively:
   1. Count prompt tokens
-  2. Drop the oldest non-system messages until the prompt fits
-  3. Clamp `max_tokens` to whatever budget remains
+  2. Reserve the requested output budget (`max_tokens`) in full
+  3. Drop the oldest non-system messages until the *prompt* fits the remainder
+
+The output is never shrunk to make room for input; only the input is trimmed.
 
 A truncation notice is returned so the caller can surface it to the user.
 """
@@ -87,9 +89,13 @@ def apply_context_budget(
     if not isinstance(messages, list) or not messages:
         return None
 
+    has_max_tokens = "max_tokens" in payload
+    has_max_completion_tokens = "max_completion_tokens" in payload
     requested_max = payload.get("max_tokens") or payload.get("max_completion_tokens")
     target_output = requested_max if isinstance(requested_max, int) else min_output_tokens
-    target_output = max(min_output_tokens, min(target_output, max_model_len // 2))
+    # Reserve the full requested output; never shrink output to make room for input.
+    # We only cap the reservation at max_model_len so prompt_budget stays non-negative.
+    target_output = max(min_output_tokens, min(target_output, max_model_len))
 
     original_tokens = count_messages_tokens(messages)
     if original_tokens + target_output <= max_model_len:
@@ -98,7 +104,9 @@ def apply_context_budget(
     system_messages = [m for m in messages if m.get("role") == "system"]
     other_messages = [m for m in messages if m.get("role") != "system"]
 
-    prompt_budget = max_model_len - min_output_tokens
+    # Budget for the prompt is whatever remains after fully reserving the output.
+    # This is the key: input is trimmed to fit around the output, not the reverse.
+    prompt_budget = max(0, max_model_len - target_output)
     system_tokens = sum(_message_token_count(m) for m in system_messages) + 2
 
     if system_tokens >= prompt_budget:
@@ -144,19 +152,21 @@ def apply_context_budget(
 
     new_messages = system_messages + kept_others
     final_prompt_tokens = count_messages_tokens(new_messages)
-    available_output = max_model_len - final_prompt_tokens
-    if available_output < min_output_tokens:
-        available_output = min_output_tokens
+
+    # Preserve the requested output. Only fall back to the space-constrained value
+    # if the trimmed prompt still leaves less room than the output we wanted —
+    # this only happens at token-count approximation edges, and the upstream hard
+    # limit (prompt + max_tokens <= max_model_len) must still be respected.
+    headroom = max_model_len - final_prompt_tokens
+    output_budget = target_output
+    if headroom < output_budget:
+        output_budget = max(min_output_tokens, headroom)
 
     payload["messages"] = new_messages
-    if "max_completion_tokens" in payload:
-        payload["max_completion_tokens"] = min(
-            payload["max_completion_tokens"] or available_output, available_output
-        )
-    else:
-        payload["max_tokens"] = min(
-            payload.get("max_tokens") or available_output, available_output
-        )
+    if has_max_completion_tokens:
+        payload["max_completion_tokens"] = output_budget
+    elif has_max_tokens:
+        payload["max_tokens"] = output_budget
 
     return {
         "dropped_messages": max(0, dropped),

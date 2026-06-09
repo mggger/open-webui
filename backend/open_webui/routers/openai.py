@@ -48,6 +48,7 @@ from open_webui.utils.misc import (
 )
 from open_webui.utils.context_window import (
     apply_context_budget,
+    count_messages_tokens,
     format_truncation_notice,
 )
 
@@ -799,9 +800,11 @@ def convert_to_azure_payload(url, payload: dict, api_version: str):
 
 def _prepend_truncation_to_stream(upstream, notice: dict, model: str):
     """Yield a synthetic SSE chunk carrying the truncation notice, then upstream."""
+    text = format_truncation_notice(notice, lang="en")
+    if not text:
+        return upstream
 
     async def _gen():
-        text = format_truncation_notice(notice, lang="en")
         chunk = {
             "id": "ctx-trunc-notice",
             "object": "chat.completion.chunk",
@@ -825,6 +828,8 @@ def _prepend_truncation_to_stream(upstream, notice: dict, model: str):
 def _prepend_truncation_to_response(response: dict, notice: dict) -> None:
     """Mutate a non-streaming response so the notice is shown before content."""
     text = format_truncation_notice(notice, lang="en")
+    if not text:
+        return
     choices = response.get("choices")
     if not isinstance(choices, list) or not choices:
         return
@@ -839,6 +844,255 @@ def _prepend_truncation_to_response(response: dict, notice: dict) -> None:
         msg["content"] = [{"type": "text", "text": text}] + content
     else:
         msg["content"] = text
+
+
+def _context_output_budget(
+    payload: dict, max_model_len: int, min_output_tokens: int
+) -> int:
+    requested_max = payload.get("max_tokens") or payload.get("max_completion_tokens")
+    target_output = (
+        requested_max if isinstance(requested_max, int) else min_output_tokens
+    )
+    return max(min_output_tokens, min(target_output, max_model_len))
+
+
+def _message_text(message: dict) -> str:
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            part.get("text", "") for part in content if isinstance(part, dict)
+        )
+    return ""
+
+
+def _format_messages_for_summary(messages: list[dict]) -> str:
+    return "\n\n".join(
+        f"{message.get('role', 'unknown').upper()}:\n{_message_text(message)}"
+        for message in messages
+    )
+
+
+async def _summarize_context_messages(
+    request_url: str,
+    headers: dict,
+    cookies: dict,
+    model: str,
+    messages: list[dict],
+    max_model_len: int,
+    summary_tokens: int,
+    azure: bool,
+    api_version: str,
+) -> Optional[str]:
+    summary_input = _format_messages_for_summary(messages)
+    original_summary_chars = len(summary_input)
+    summary_payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "Compress the conversation history into a concise memory for the next "
+                    "assistant response. Preserve user requirements, constraints, decisions, "
+                    "facts, file names, code identifiers, and unresolved tasks. Do not answer "
+                    "the user. Return only the compressed memory."
+                ),
+            },
+            {"role": "user", "content": summary_input},
+        ],
+        "stream": False,
+    }
+    if is_openai_reasoning_model(model):
+        summary_payload["max_completion_tokens"] = summary_tokens
+    else:
+        summary_payload["temperature"] = 0
+        summary_payload["max_tokens"] = summary_tokens
+
+    # Keep the summarization request inside the upstream context limit. If the
+    # history itself is too large, summarize the most recent part of the history.
+    while (
+        count_messages_tokens(summary_payload["messages"]) + summary_tokens
+        > max_model_len
+        and len(summary_input) > 4000
+    ):
+        summary_input = summary_input[len(summary_input) // 4 :]
+        summary_payload["messages"][1]["content"] = summary_input
+
+    if len(summary_input) != original_summary_chars:
+        log.info(
+            "Context compression input trimmed for summarizer: original_chars=%d, final_chars=%d, max_model_len=%d",
+            original_summary_chars,
+            len(summary_input),
+            max_model_len,
+        )
+
+    if azure:
+        api_payload = {**summary_payload}
+        compression_url, api_payload = convert_to_azure_payload(
+            request_url, api_payload, api_version
+        )
+        compression_url = f"{compression_url}/chat/completions?api-version={api_version}"
+    else:
+        compression_url = f"{request_url}/chat/completions"
+        api_payload = summary_payload
+
+    timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+    async with aiohttp.ClientSession(trust_env=True, timeout=timeout) as session:
+        async with session.post(
+            compression_url,
+            data=json.dumps(api_payload),
+            headers=headers,
+            cookies=cookies,
+            ssl=AIOHTTP_CLIENT_SESSION_SSL,
+        ) as response:
+            data = await response.json()
+            if response.status >= 400:
+                raise RuntimeError(f"Context compression failed: {data}")
+
+    choices = data.get("choices") if isinstance(data, dict) else None
+    if not choices:
+        return None
+    message = choices[0].get("message", {})
+    content = message.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        return "\n".join(
+            part.get("text", "") for part in content if isinstance(part, dict)
+        ).strip()
+    return None
+
+
+async def _compress_context_budget(
+    payload: dict,
+    request_url: str,
+    headers: dict,
+    cookies: dict,
+    max_model_len: int,
+    min_output_tokens: int,
+    azure: bool,
+    api_version: str,
+) -> Optional[dict]:
+    messages = payload.get("messages")
+    if not isinstance(messages, list) or not messages:
+        return None
+
+    target_output = _context_output_budget(payload, max_model_len, min_output_tokens)
+    original_tokens = count_messages_tokens(messages)
+    if original_tokens + target_output <= max_model_len:
+        return None
+
+    prompt_budget = max(0, max_model_len - target_output)
+    summary_tokens = max(256, min(2048, prompt_budget // 4))
+    system_messages = [m for m in messages if m.get("role") == "system"]
+    other_messages = [m for m in messages if m.get("role") != "system"]
+    if not other_messages:
+        return None
+
+    summary_placeholder = {
+        "role": "system",
+        "content": "Earlier conversation summary will be inserted here.",
+    }
+    kept_recent: list[dict] = []
+    compress_all = False
+    for message in reversed(other_messages):
+        candidate = (
+            system_messages
+            + [
+                {
+                    **summary_placeholder,
+                    "content": "Earlier conversation summary:\n"
+                    + ("x" * summary_tokens * 4),
+                }
+            ]
+            + list(reversed(kept_recent + [message]))
+        )
+        if count_messages_tokens(candidate) + target_output <= max_model_len:
+            kept_recent.append(message)
+        elif not kept_recent:
+            # The newest message alone is too large. Compress the request instead
+            # of hard-truncating it.
+            compress_all = True
+            break
+        else:
+            break
+
+    kept_recent.reverse()
+    compressed_messages = (
+        other_messages
+        if compress_all
+        else other_messages[: len(other_messages) - len(kept_recent)]
+    )
+    if not compressed_messages:
+        return None
+
+    log.info(
+        "Context window exceeded; attempting LLM compression: model=%s, original_tokens=%d, max_model_len=%d, reserved_output_tokens=%d, messages_to_compress=%d, recent_messages_preserved=%d, mode=%s",
+        payload.get("model"),
+        original_tokens,
+        max_model_len,
+        target_output,
+        len(compressed_messages),
+        len(kept_recent),
+        "compress_current_request" if compress_all else "compress_older_history",
+    )
+
+    summary = await _summarize_context_messages(
+        request_url=request_url,
+        headers=headers,
+        cookies=cookies,
+        model=payload.get("model", ""),
+        messages=compressed_messages,
+        max_model_len=max_model_len,
+        summary_tokens=summary_tokens,
+        azure=azure,
+        api_version=api_version,
+    )
+    if not summary:
+        return None
+
+    if compress_all:
+        new_messages = system_messages + [
+            {
+                "role": "user",
+                "content": "Compressed conversation and current user request:\n" + summary,
+            }
+        ]
+    else:
+        new_messages = system_messages + [
+            {
+                "role": "system",
+                "content": "Earlier conversation summary:\n" + summary,
+            }
+        ] + kept_recent
+
+    final_prompt_tokens = count_messages_tokens(new_messages)
+    headroom = max_model_len - final_prompt_tokens
+    output_budget = min(target_output, headroom)
+    if output_budget <= 0:
+        return None
+    if final_prompt_tokens + output_budget > max_model_len:
+        return None
+
+    payload["messages"] = new_messages
+    if "max_completion_tokens" in payload:
+        payload["max_completion_tokens"] = output_budget
+    elif "max_tokens" in payload:
+        payload["max_tokens"] = output_budget
+
+    return {
+        "compressed_messages": len(compressed_messages),
+        "preserved_recent_messages": len(kept_recent),
+        "mode": "compress_current_request" if compress_all else "compress_older_history",
+        "summary_tokens": count_messages_tokens(
+            [{"role": "system", "content": summary}]
+        ),
+        "original_tokens": original_tokens,
+        "final_tokens": final_prompt_tokens,
+        "reserved_output_tokens": output_budget,
+        "max_model_len": max_model_len,
+    }
 
 
 @router.post("/chat/completions")
@@ -938,13 +1192,23 @@ async def generate_chat_completion(
     if "max_tokens" in payload and "max_completion_tokens" in payload:
         del payload["max_tokens"]
 
+    headers, cookies = await get_headers_and_cookies(
+        request, url, key, api_config, metadata, user=user
+    )
+    if api_config.get("azure", False):
+        auth_type = api_config.get("auth_type", "bearer")
+        if auth_type not in ("azure_ad", "microsoft_entra_id"):
+            headers["api-key"] = key
+
     # Enforce upstream context window (e.g. self-hosted vLLM with --max-model-len).
-    # If the connection config declares a max_model_len, drop the oldest non-system
-    # messages until the prompt + reserved output fit, and clamp max_tokens.
+    # First try to compress older history into a summary while preserving recent
+    # messages. If compression is unavailable or still does not fit, fall back to
+    # dropping the oldest non-system messages.
     # Defaults to 32768 to match the in-house vLLM deployment; explicitly set to 0
     # in the connection config to disable.
     DEFAULT_MAX_MODEL_LEN = 32768
     truncation_notice = None
+    compression_notice = None
     max_model_len = api_config.get("max_model_len", DEFAULT_MAX_MODEL_LEN)
     model_max_lens = api_config.get("model_max_lens") or {}
     if isinstance(model_max_lens, dict) and payload.get("model") in model_max_lens:
@@ -955,14 +1219,56 @@ async def generate_chat_completion(
         max_model_len = 0
     if max_model_len > 0:
         min_output = int(api_config.get("min_output_tokens", 256) or 256)
-        truncation_notice = apply_context_budget(
-            payload, max_model_len=max_model_len, min_output_tokens=min_output
-        )
-        if truncation_notice:
-            log.info(
-                "Context truncated for model %s: %s",
+        try:
+            compression_notice = await _compress_context_budget(
+                payload=payload,
+                request_url=url,
+                headers=headers,
+                cookies=cookies,
+                max_model_len=max_model_len,
+                min_output_tokens=min_output,
+                azure=api_config.get("azure", False),
+                api_version=api_config.get("api_version", "2023-03-15-preview"),
+            )
+        except Exception as e:
+            log.warning(
+                "Context compression failed; falling back to context trimming: model=%s, max_model_len=%d, error=%s",
                 payload.get("model"),
-                truncation_notice,
+                max_model_len,
+                e,
+            )
+
+        if compression_notice:
+            log.info(
+                "Context compression completed: model=%s, mode=%s, compressed_messages=%d, preserved_recent_messages=%d, original_tokens=%d, final_tokens=%d, summary_tokens=%d, reserved_output_tokens=%d, max_model_len=%d",
+                payload.get("model"),
+                compression_notice.get("mode"),
+                compression_notice.get("compressed_messages", 0),
+                compression_notice.get("preserved_recent_messages", 0),
+                compression_notice.get("original_tokens", 0),
+                compression_notice.get("final_tokens", 0),
+                compression_notice.get("summary_tokens", 0),
+                compression_notice.get("reserved_output_tokens", 0),
+                compression_notice.get("max_model_len", 0),
+            )
+        else:
+            log.warning(
+                "Context compression unavailable or insufficient; applying context trimming fallback: model=%s, max_model_len=%d",
+                payload.get("model"),
+                max_model_len,
+            )
+            truncation_notice = apply_context_budget(
+                payload, max_model_len=max_model_len, min_output_tokens=min_output
+            )
+        if truncation_notice:
+            log.warning(
+                "Context trimming fallback applied: model=%s, dropped_messages=%d, truncated_message=%s, original_tokens=%d, final_tokens=%d, max_model_len=%d",
+                payload.get("model"),
+                truncation_notice.get("dropped_messages", 0),
+                truncation_notice.get("truncated_message", False),
+                truncation_notice.get("original_tokens", 0),
+                truncation_notice.get("final_tokens", 0),
+                truncation_notice.get("max_model_len", 0),
             )
 
     # Convert the modified body back to JSON
@@ -970,10 +1276,6 @@ async def generate_chat_completion(
         payload["logit_bias"] = json.loads(
             convert_logit_bias_input_to_json(payload["logit_bias"])
         )
-
-    headers, cookies = await get_headers_and_cookies(
-        request, url, key, api_config, metadata, user=user
-    )
 
     if api_config.get("azure", False):
         api_version = api_config.get("api_version", "2023-03-15-preview")

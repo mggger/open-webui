@@ -178,23 +178,5 @@ def apply_context_budget(
 
 
 def format_truncation_notice(notice: dict, lang: str = "en") -> str:
-    """User-facing string explaining what happened. Kept short and unambiguous."""
-    dropped = notice.get("dropped_messages", 0)
-    truncated = notice.get("truncated_message", False)
-    if lang == "zh":
-        details = []
-        if dropped:
-            details.append(f"丢弃了 {dropped} 条较早的消息")
-        if truncated:
-            details.append("当前消息内容也被部分截断")
-        if not details:
-            details.append("已调整以适配模型长度限制")
-        return "⚠️ 上下文超过模型长度限制，" + "，".join(details) + "。\n\n"
-    details = []
-    if dropped:
-        details.append(f"dropped {dropped} earlier message(s)")
-    if truncated:
-        details.append("the latest message was also partially trimmed")
-    if not details:
-        details.append("adjusted to fit the model context limit")
-    return "⚠️ Context exceeded the model length limit; " + ", ".join(details) + ".\n\n"
+    """Context truncation notices are intentionally hidden from chat output."""
+    return ""

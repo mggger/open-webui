@@ -155,12 +155,12 @@
 	export let editCodeBlock = true;
 	export let topPadding = false;
 
-let citationsElement: HTMLDivElement;
+	let citationsElement: HTMLDivElement;
 
-let contentContainerElement: HTMLDivElement;
-let markdownWrapperElement: HTMLDivElement;
-let buttonsContainerElement: HTMLDivElement;
-let showDeleteConfirm = false;
+	let contentContainerElement: HTMLDivElement;
+	let markdownWrapperElement: HTMLDivElement;
+	let buttonsContainerElement: HTMLDivElement;
+	let showDeleteConfirm = false;
 
 	let model = null;
 	$: model = $models.find((m) => m.id === message.model);
@@ -171,14 +171,14 @@ let showDeleteConfirm = false;
 
 	let messageIndexEdit = false;
 
-let speaking = false;
-let speakingIdx: number | undefined;
+	let speaking = false;
+	let speakingIdx: number | undefined;
 
-let loadingSpeech = false;
-let generatingImage = false;
-let exportingPdf = false;
+	let loadingSpeech = false;
+	let generatingImage = false;
+	let exportingPdf = false;
 
-let showRateComment = false;
+	let showRateComment = false;
 
 	const copyToClipboard = async (text) => {
 		text = removeAllDetails(text);
@@ -587,18 +587,19 @@ let showRateComment = false;
 			// A4 dimensions in mm
 			const pageWidthMM = 210;
 			const pageHeightMM = 297;
-			// First-page top offset (mm) — pushes body below printed logo/header art.
-			// The banner ends at ~73mm in the source artwork; 80mm leaves a clean gap.
-			const firstPageTopOffsetMM = 80;
+			// First-page top offset (mm) — updated after measuring the header artwork.
+			let firstPageTopOffsetMM = 80;
 			// Subsequent-page top/bottom margin (mm) — keeps body from hugging edges
 			const subsequentPageTopMM = 18;
 			const pageBottomMM = 15;
 			// Side margin (mm)
 			const sideMarginMM = 15;
 
-			// Compress the brand/header background to a small JPEG so embedding it
-			// does not blow up the PDF (source PNG is 4419×6250 → ~110MB when decoded).
+			// Compress the brand/header artwork to a small JPEG so embedding it does not
+			// blow up the PDF. Wide artwork is treated as a top header; A4-proportioned
+			// artwork remains supported as a full-page background.
 			let bgJpegDataUrl: string | null = null;
+			let bgHeightMM = pageHeightMM;
 			if (pdfBackground) {
 				try {
 					const res = await fetch(pdfBackground);
@@ -616,13 +617,14 @@ let showRateComment = false;
 						img.onerror = reject;
 						img.src = sourceDataUrl;
 					});
-					// Build a canvas whose aspect ratio exactly matches A4 (210:297) and
-					// stretch the source image to fully fill it. The source PNG is
-					// already A4 proportioned (4419×6250 ≈ 0.7070) so the tiny stretch
-					// is not visible. Filling edge-to-edge ensures no rounding cuts off
-					// banner / artwork content.
+					const sourceAspect = srcImg.naturalWidth / srcImg.naturalHeight;
+					const pageAspect = pageWidthMM / pageHeightMM;
+					const isFullPageArtwork = Math.abs(sourceAspect - pageAspect) < 0.08;
+
 					const targetWidth = 1240; // ~150dpi at A4 — sharp enough for flat artwork
-					const targetHeight = Math.round((targetWidth * pageHeightMM) / pageWidthMM);
+					const targetHeight = isFullPageArtwork
+						? Math.round((targetWidth * pageHeightMM) / pageWidthMM)
+						: Math.round(targetWidth / sourceAspect);
 					const bgCanvas = document.createElement('canvas');
 					bgCanvas.width = targetWidth;
 					bgCanvas.height = targetHeight;
@@ -632,6 +634,16 @@ let showRateComment = false;
 						bgCtx.fillRect(0, 0, targetWidth, targetHeight);
 						bgCtx.drawImage(srcImg, 0, 0, targetWidth, targetHeight);
 						bgJpegDataUrl = bgCanvas.toDataURL('image/jpeg', 0.85);
+
+						bgHeightMM = isFullPageArtwork ? pageHeightMM : pageWidthMM / sourceAspect;
+						if (!isFullPageArtwork) {
+							const headerGapMM = 8;
+							const minBodyHeightMM = 80;
+							firstPageTopOffsetMM = Math.min(
+								bgHeightMM + headerGapMM,
+								pageHeightMM - pageBottomMM - minBodyHeightMM
+							);
+						}
 					}
 				} catch (err) {
 					console.warn('Unable to prepare PDF background', err);
@@ -712,9 +724,7 @@ let showRateComment = false;
 						// For tables/lists, also allow breaks between rows/items.
 						const tag = child.tagName.toLowerCase();
 						if (tag === 'table' || tag === 'ul' || tag === 'ol') {
-							const rows = child.querySelectorAll(
-								tag === 'table' ? 'tr' : ':scope > li'
-							);
+							const rows = child.querySelectorAll(tag === 'table' ? 'tr' : ':scope > li');
 							rows.forEach((row) => {
 								if (row instanceof HTMLElement) {
 									breakablePx.push(row.getBoundingClientRect().top - wrapperTopPx);
@@ -759,8 +769,7 @@ let showRateComment = false;
 				let pageIndex = 0;
 
 				while (offsetY < totalHeightPx) {
-					const maxPageBodyPx =
-						pageIndex === 0 ? firstPageBodyHeightPx : subsequentBodyHeightPx;
+					const maxPageBodyPx = pageIndex === 0 ? firstPageBodyHeightPx : subsequentBodyHeightPx;
 					const remainingPx = totalHeightPx - offsetY;
 
 					let sliceHeightPx: number;
@@ -807,19 +816,10 @@ let showRateComment = false;
 
 					if (pageIndex > 0) pdf.addPage();
 
-					// Page 1: paint the full-page brand background first, then the body
-					// slice gets drawn BELOW the header area so the logo stays visible.
+					// Page 1: paint the brand artwork first, then draw the body below
+					// the header area so the logo stays visible.
 					if (pageIndex === 0 && bgJpegDataUrl) {
-						pdf.addImage(
-							bgJpegDataUrl,
-							'JPEG',
-							0,
-							0,
-							pageWidthMM,
-							pageHeightMM,
-							undefined,
-							'FAST'
-						);
+						pdf.addImage(bgJpegDataUrl, 'JPEG', 0, 0, pageWidthMM, bgHeightMM, undefined, 'FAST');
 					}
 
 					const sliceHeightMM = sliceHeightPx * mmPerPx;

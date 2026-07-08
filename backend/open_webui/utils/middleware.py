@@ -1521,6 +1521,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # If context is not empty, insert it into the messages
     if len(sources) > 0:
         context_string = ""
+        tool_context_string = ""
         citation_idx_map = {}
 
         for source in sources:
@@ -1538,6 +1539,14 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     if source_id not in citation_idx_map:
                         citation_idx_map[source_id] = len(citation_idx_map) + 1
 
+                    if source.get("tool_result"):
+                        tool_context_string += (
+                            f'<tool_result id="{citation_idx_map[source_id]}"'
+                            + (f' name="{source_name}"' if source_name else "")
+                            + f">{document_text}</tool_result>\n"
+                        )
+                        continue
+
                     context_string += (
                         f'<source id="{citation_idx_map[source_id]}"'
                         + (f' name="{source_name}"' if source_name else "")
@@ -1545,6 +1554,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     )
 
         context_string = context_string.strip()
+        tool_context_string = tool_context_string.strip()
         if prompt is None:
             raise Exception("No user message found")
 
@@ -1557,6 +1567,15 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 ),
                 form_data["messages"],
                 append=False,
+            )
+
+        if tool_context_string != "":
+            form_data["messages"] = add_or_update_user_message(
+                "\n\nThe following tools were already executed on the user's behalf "
+                "for this request. Their raw outputs are below — answer the user's "
+                "request by relaying these results faithfully:\n"
+                f"{tool_context_string}",
+                form_data["messages"],
             )
 
     # If there are citations, add them to the data_items

@@ -61,6 +61,7 @@
 	import Sidebar from '../icons/Sidebar.svelte';
 	import PinnedModelList from './Sidebar/PinnedModelList.svelte';
 	import Note from '../icons/Note.svelte';
+	import Calendar from '../icons/Calendar.svelte';
 	import { slide } from 'svelte/transition';
 	import HotkeyHint from '../common/HotkeyHint.svelte';
 	import { key } from 'vega';
@@ -666,6 +667,28 @@
 					</div>
 				{/if}
 
+				<div class="">
+					<Tooltip content={$i18n.t('Big events')} placement="right">
+						<a
+							class=" cursor-pointer flex rounded-xl hover:bg-gray-100 dark:hover:bg-gray-850 transition group"
+							href="/big-events"
+							on:click={async (e) => {
+								e.stopImmediatePropagation();
+								e.preventDefault();
+
+								goto('/big-events');
+								itemClickHandler();
+							}}
+							draggable="false"
+							aria-label={$i18n.t('Big events')}
+						>
+							<div class=" self-center flex items-center justify-center size-9">
+								<Calendar className="size-4.5" strokeWidth="2" />
+							</div>
+						</a>
+					</Tooltip>
+				</div>
+
 				{#if $user?.role === 'admin'}
 					<div class="">
 						<Tooltip content={$i18n.t('Conversation Agent')} placement="right">
@@ -934,6 +957,25 @@
 							</a>
 						</div>
 					{/if}
+
+					<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
+						<a
+							id="sidebar-big-events-button"
+							class="grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition"
+							href="/big-events"
+							on:click={itemClickHandler}
+							draggable="false"
+							aria-label={$i18n.t('Big events')}
+						>
+							<div class="self-center">
+								<Calendar className="size-4.5" strokeWidth="2" />
+							</div>
+
+							<div class="flex self-center translate-y-[0.5px]">
+								<div class=" self-center text-sm font-primary">{$i18n.t('Big events')}</div>
+							</div>
+						</a>
+					</div>
 
 					{#if $user?.role === 'admin'}
 						<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">

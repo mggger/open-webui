@@ -96,6 +96,7 @@ from open_webui.routers import (
     scim,
     conversation_agents,
     vtiger,
+    big_events,
 )
 
 from open_webui.routers.retrieval import (
@@ -104,6 +105,7 @@ from open_webui.routers.retrieval import (
     get_ef,
     get_rf,
 )
+from open_webui.utils.big_events import DISCOVERY_ENABLED, big_events_discovery_loop
 
 from open_webui.internal.db import Session, engine
 
@@ -611,6 +613,11 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(periodic_usage_pool_cleanup())
 
+    if DISCOVERY_ENABLED:
+        app.state.big_events_discovery_task = asyncio.create_task(
+            big_events_discovery_loop(app)
+        )
+
     if app.state.config.ENABLE_BASE_MODELS_CACHE:
         await get_all_models(
             Request(
@@ -636,6 +643,8 @@ async def lifespan(app: FastAPI):
 
     if hasattr(app.state, "redis_task_command_listener"):
         app.state.redis_task_command_listener.cancel()
+    if hasattr(app.state, "big_events_discovery_task"):
+        app.state.big_events_discovery_task.cancel()
 
 
 app = FastAPI(
@@ -1394,6 +1403,7 @@ app.include_router(images.router, prefix="/api/v1/images", tags=["images"])
 app.include_router(audio.router, prefix="/api/v1/audio", tags=["audio"])
 app.include_router(retrieval.router, prefix="/api/v1/retrieval", tags=["retrieval"])
 app.include_router(deep_search.router, prefix="/api/v1/deep-search", tags=["deep-search"])
+app.include_router(big_events.router, prefix="/api/v1/big-events", tags=["big-events"])
 app.include_router(vtiger.router, prefix="/api/v1/vtiger", tags=["vtiger"])
 
 app.include_router(configs.router, prefix="/api/v1/configs", tags=["configs"])

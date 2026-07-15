@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from open_webui.utils.auth import get_verified_user
 from open_webui.utils.big_events import get_big_events_payload, refresh_big_events
@@ -17,4 +17,7 @@ async def get_big_events(
 async def refresh_discovered_big_events(
     request: Request, user=Depends(get_verified_user)
 ):
-    return await refresh_big_events(request, user=user)
+    try:
+        return await refresh_big_events(request, user=user)
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=str(error)[:2000]) from error

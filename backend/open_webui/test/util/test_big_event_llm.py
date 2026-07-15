@@ -66,10 +66,27 @@ def test_classifier_response_rejects_non_boolean_tool_argument(value):
 
 
 def test_classifier_response_rejects_plain_text():
-    with pytest.raises(ValueError, match="exactly one tool call"):
+    with pytest.raises(ValueError, match="did not return any tool calls"):
         parse_classifier_response(
             {"choices": [{"message": {"content": "true", "tool_calls": []}}]}
         )
+
+
+def test_classifier_response_accepts_identical_duplicate_tool_calls():
+    response = _response(True)
+    response["choices"][0]["message"]["tool_calls"] *= 2
+
+    assert parse_classifier_response(response) is True
+
+
+def test_classifier_response_rejects_conflicting_duplicate_tool_calls():
+    response = _response(True)
+    response["choices"][0]["message"]["tool_calls"].extend(
+        _response(False)["choices"][0]["message"]["tool_calls"]
+    )
+
+    with pytest.raises(ValueError, match="conflicting duplicate decisions"):
+        parse_classifier_response(response)
 
 
 @pytest.mark.asyncio
@@ -96,3 +113,31 @@ async def test_every_candidate_is_sent_to_llm_without_keyword_filtering():
 
     assert len(calls) == len(events)
     assert [event["id"] for event in selected] == ["one", "two"]
+
+
+@pytest.mark.asyncio
+async def test_classifier_retries_a_missing_tool_call():
+    event = {"id": "one", "title": "CEO Forum"}
+    responses = iter(
+        (
+            {"choices": [{"message": {"content": "true", "tool_calls": []}}]},
+            _response(True),
+        )
+    )
+    calls = 0
+
+    async def completion_fn(_request, form_data, user):
+        nonlocal calls
+        calls += 1
+        return next(responses)
+
+    selected = await classify_events(
+        request=None,
+        user=None,
+        events=[event],
+        completion_fn=completion_fn,
+        model_id="vllm-model",
+    )
+
+    assert calls == 2
+    assert selected == [event]

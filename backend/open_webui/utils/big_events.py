@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -99,7 +100,17 @@ async def refresh_big_events(request: Request, user=None) -> dict:
             error=partial_error,
             engine=DISCOVERY_ENGINE,
         )
-        return get_big_events_payload()
+        payload = get_big_events_payload()
+        payload["discovery"] = {
+            "candidateCount": len(crawl_result.events),
+            "acceptedCount": len(events),
+            "crawledBySource": crawl_result.counts,
+            "acceptedBySource": dict(
+                Counter(event.get("sourceType", "unknown") for event in events)
+            ),
+            "sourceErrors": crawl_result.errors,
+        }
+        return payload
     except Exception as error:
         from open_webui.models.big_events import BigEvents
 

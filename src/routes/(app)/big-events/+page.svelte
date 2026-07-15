@@ -177,8 +177,18 @@
 				const payload = await response.json().catch(() => null);
 				throw new Error(payload?.detail ?? `Crawler request failed (HTTP ${response.status})`);
 			}
+			const payload = await response.json();
 			await refreshEvents();
-			toast.success('Event source crawl completed and recommendations refreshed.');
+			const discovery = payload?.discovery;
+			if (discovery && discovery.acceptedCount === 0) {
+				toast.warning(`Crawled ${discovery.candidateCount} candidates, but the LLM accepted none.`);
+			} else if (discovery) {
+				toast.success(
+					`Added ${discovery.acceptedCount} of ${discovery.candidateCount} LLM-reviewed candidates.`
+				);
+			} else {
+				toast.success('Event source crawl completed and recommendations refreshed.');
+			}
 		} catch (error) {
 			loading = false;
 			toast.error(error instanceof Error ? error.message : 'Could not refresh event sources.');

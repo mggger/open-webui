@@ -98,6 +98,7 @@ from open_webui.utils.filter import (
     process_filter_functions,
 )
 from open_webui.utils.code_interpreter import execute_code_jupyter
+from open_webui.utils.file_search import chat_file_search_handler
 from open_webui.utils.payload import apply_system_prompt_to_body
 from open_webui.utils.mcp.client import MCPClient
 
@@ -1292,6 +1293,17 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 ),
                 form_data["messages"],
             )
+
+    file_search = form_data.pop("file_search", None)
+    if isinstance(file_search, dict) and file_search.get("enabled"):
+        form_data, file_search_sources = await chat_file_search_handler(
+            request,
+            form_data,
+            extra_params,
+            user,
+            file_search,
+        )
+        sources.extend(file_search_sources)
 
     tool_ids = form_data.pop("tool_ids", None)
     files = form_data.pop("files", None)

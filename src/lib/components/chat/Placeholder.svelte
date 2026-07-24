@@ -54,6 +54,8 @@
 	export let codeInterpreterEnabled = false;
 	export let webSearchEnabled = false;
 	export let deepSearchEnabled = false;
+	export let fileSearchEnabled = false;
+	export let fileSearchDirectory = '';
 
 	export let onSelect = (e) => {};
 	export let onChange = (e) => {};
@@ -211,6 +213,8 @@
 					bind:codeInterpreterEnabled
 					bind:webSearchEnabled
 					bind:deepSearchEnabled
+					bind:fileSearchEnabled
+					bind:fileSearchDirectory
 					bind:atSelectedModel
 					bind:showCommands
 					{toolServers}

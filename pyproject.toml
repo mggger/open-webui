@@ -73,6 +73,7 @@ dependencies = [
     "pymdown-extensions==10.17.2",
     "docx2txt==0.8",
     "python-pptx==1.0.2",
+    "smbprotocol>=1.15,<2",
     "unstructured==0.18.21",
     "msoffcrypto-tool==5.4.2",
     "nltk==3.9.1",

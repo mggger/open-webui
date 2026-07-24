@@ -3,11 +3,14 @@
 	import { getContext, onMount, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { flyAndScale } from '$lib/utils/transitions';
+	import { toast } from 'svelte-sonner';
 
 	import { config, user, tools as _tools, mobile, settings, toolServers } from '$lib/stores';
 
 	import { getOAuthClientAuthorizationUrl } from '$lib/apis/configs';
 	import { getTools } from '$lib/apis/tools';
+	import { getFileSearchConfig, type FileSearchConfig } from '$lib/apis/file-search';
+	import FileSearchFolderPickerModal from './FileSearchFolderPickerModal.svelte';
 
 	import Knobs from '$lib/components/icons/Knobs.svelte';
 	import Dropdown from '$lib/components/common/Dropdown.svelte';
@@ -22,6 +25,7 @@
 	import Terminal from '$lib/components/icons/Terminal.svelte';
 	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
+	import FolderOpen from '$lib/components/icons/FolderOpen.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -42,6 +46,8 @@
 	export let imageGenerationEnabled = false;
 	export let showCodeInterpreterButton = false;
 	export let codeInterpreterEnabled = false;
+	export let fileSearchEnabled = false;
+	export let fileSearchDirectory = '';
 
 	export let onShowValves: Function;
 	export let onClose: Function;
@@ -51,6 +57,8 @@
 	let tab = '';
 
 	let tools = null;
+	let fileSearchConfig: FileSearchConfig | null = null;
+	let showFileSearchFolderPicker = false;
 
 	$: if (show) {
 		init();
@@ -92,6 +100,11 @@
 		}
 
 		selectedToolIds = selectedToolIds.filter((id) => Object.keys(tools).includes(id));
+
+		fileSearchConfig = await getFileSearchConfig(localStorage.token).catch(() => null);
+		if (fileSearchConfig?.configured && !fileSearchDirectory) {
+			fileSearchDirectory = fileSearchConfig.default_directory ?? '';
+		}
 	};
 </script>
 
@@ -144,6 +157,33 @@
 							<Spinner />
 						</div>
 					{/if}
+
+					<button
+						class="flex w-full justify-between gap-2 items-center px-3 py-1.5 text-sm cursor-pointer rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50"
+						on:click={async () => {
+							if (!fileSearchConfig?.configured) {
+								toast.error($i18n.t('Configure File Search Agent in Settings first'));
+								return;
+							}
+							fileSearchDirectory = fileSearchDirectory || fileSearchConfig.default_directory || '';
+							show = false;
+							await tick();
+							showFileSearchFolderPicker = true;
+						}}
+					>
+						<FolderOpen className="size-4" />
+						<div class="flex items-center w-full justify-between">
+							<div class="line-clamp-1">
+								{$i18n.t('File Search Agent')}
+								{#if !fileSearchConfig?.configured}
+									<span class="ml-1 text-xs text-gray-400">{$i18n.t('Not configured')}</span>
+								{:else if fileSearchEnabled}
+									<span class="ml-1 text-xs text-sky-500">{$i18n.t('On')}</span>
+								{/if}
+							</div>
+							<div class="text-gray-500"><ChevronRight /></div>
+						</div>
+					</button>
 
 					{#if toggleFilters && toggleFilters.length > 0}
 						{#each toggleFilters.sort( (a, b) => a.name.localeCompare( b.name, undefined, { sensitivity: 'base' } ) ) as filter, filterIdx (filter.id)}
@@ -442,3 +482,15 @@
 		</DropdownMenu.Content>
 	</div>
 </Dropdown>
+
+{#if fileSearchConfig}
+	<FileSearchFolderPickerModal
+		bind:show={showFileSearchFolderPicker}
+		config={fileSearchConfig}
+		initialDirectory={fileSearchDirectory}
+		onSelect={(directory) => {
+			fileSearchDirectory = directory;
+			fileSearchEnabled = true;
+		}}
+	/>
+{/if}

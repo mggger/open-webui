@@ -97,6 +97,7 @@ from open_webui.routers import (
     conversation_agents,
     vtiger,
     big_events,
+    file_search,
 )
 
 from open_webui.routers.retrieval import (
@@ -501,6 +502,7 @@ from open_webui.utils.chat import (
 from open_webui.utils.embeddings import generate_embeddings
 from open_webui.utils.middleware import process_chat_payload, process_chat_response
 from open_webui.utils.access_control import has_access
+from open_webui.utils.misc import get_last_user_message
 
 from open_webui.utils.auth import (
     get_license_data,
@@ -1404,6 +1406,9 @@ app.include_router(audio.router, prefix="/api/v1/audio", tags=["audio"])
 app.include_router(retrieval.router, prefix="/api/v1/retrieval", tags=["retrieval"])
 app.include_router(deep_search.router, prefix="/api/v1/deep-search", tags=["deep-search"])
 app.include_router(big_events.router, prefix="/api/v1/big-events", tags=["big-events"])
+app.include_router(
+    file_search.router, prefix="/api/v1/file-search", tags=["file-search"]
+)
 app.include_router(vtiger.router, prefix="/api/v1/vtiger", tags=["vtiger"])
 
 app.include_router(configs.router, prefix="/api/v1/configs", tags=["configs"])
@@ -1618,6 +1623,8 @@ async def chat_completion(
             "session_id": form_data.pop("session_id", None),
             "filter_ids": form_data.pop("filter_ids", []),
             "tool_ids": form_data.get("tool_ids", None),
+            "file_search": form_data.get("file_search", None),
+            "file_search_query": get_last_user_message(form_data.get("messages", [])),
             "tool_servers": form_data.pop("tool_servers", None),
             "files": form_data.get("files", None),
             "features": form_data.get("features", {}),

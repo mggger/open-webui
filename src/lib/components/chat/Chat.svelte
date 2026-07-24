@@ -140,6 +140,8 @@
 	let webSearchEnabled = false;
 	let deepSearchEnabled = false;
 	let codeInterpreterEnabled = false;
+	let fileSearchEnabled = false;
+	let fileSearchDirectory = '';
 
 	let showCommands = false;
 
@@ -178,6 +180,8 @@
 		webSearchEnabled = false;
 		deepSearchEnabled = false;
 		imageGenerationEnabled = false;
+		fileSearchEnabled = false;
+		fileSearchDirectory = '';
 
 		const storageChatInput = sessionStorage.getItem(
 			`chat-input${chatIdProp ? `-${chatIdProp}` : ''}`
@@ -203,6 +207,8 @@
 						deepSearchEnabled = input.deepSearchEnabled;
 						imageGenerationEnabled = input.imageGenerationEnabled;
 						codeInterpreterEnabled = input.codeInterpreterEnabled;
+						fileSearchEnabled = input.fileSearchEnabled ?? false;
+						fileSearchDirectory = input.fileSearchDirectory ?? '';
 					}
 				} catch (e) {}
 			} else {
@@ -264,6 +270,8 @@
 		deepSearchEnabled = false;
 		imageGenerationEnabled = false;
 		codeInterpreterEnabled = false;
+		fileSearchEnabled = false;
+		fileSearchDirectory = '';
 
 		if (selectedModelIds.filter((id) => id).length > 0) {
 			setDefaults();
@@ -587,6 +595,8 @@
 			deepSearchEnabled = false;
 			imageGenerationEnabled = false;
 			codeInterpreterEnabled = false;
+			fileSearchEnabled = false;
+			fileSearchDirectory = '';
 
 			try {
 				const input = JSON.parse(storageChatInput);
@@ -600,6 +610,8 @@
 					deepSearchEnabled = input.deepSearchEnabled;
 					imageGenerationEnabled = input.imageGenerationEnabled;
 					codeInterpreterEnabled = input.codeInterpreterEnabled;
+					fileSearchEnabled = input.fileSearchEnabled ?? false;
+					fileSearchDirectory = input.fileSearchDirectory ?? '';
 				}
 			} catch (e) {}
 		}
@@ -2034,6 +2046,12 @@
 
 				filter_ids: selectedFilterIds.length > 0 ? selectedFilterIds : undefined,
 				tool_ids: toolIds.length > 0 ? toolIds : undefined,
+				file_search: fileSearchEnabled
+					? {
+							enabled: true,
+							directory: fileSearchDirectory
+						}
+					: undefined,
 				tool_servers: ($toolServers ?? []).filter(
 					(server, idx) => toolServerIds.includes(idx) || toolServerIds.includes(server?.id)
 				),
@@ -2730,6 +2748,8 @@
 									bind:codeInterpreterEnabled
 									bind:webSearchEnabled
 									bind:deepSearchEnabled
+									bind:fileSearchEnabled
+									bind:fileSearchDirectory
 									bind:atSelectedModel
 									bind:showCommands
 									toolServers={$toolServers}
@@ -2783,6 +2803,8 @@
 									bind:codeInterpreterEnabled
 									bind:webSearchEnabled
 									bind:deepSearchEnabled
+									bind:fileSearchEnabled
+									bind:fileSearchDirectory
 									bind:atSelectedModel
 									bind:showCommands
 									toolServers={$toolServers}

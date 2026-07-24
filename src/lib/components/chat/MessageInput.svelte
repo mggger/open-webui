@@ -80,6 +80,7 @@
 	import { getSuggestionRenderer } from '../common/RichTextInput/suggestions';
 	import CommandSuggestionList from './MessageInput/CommandSuggestionList.svelte';
 	import Knobs from '../icons/Knobs.svelte';
+	import FolderOpen from '../icons/FolderOpen.svelte';
 	import ValvesModal from '../workspace/common/ValvesModal.svelte';
 
 	const i18n = getContext('i18n');
@@ -110,6 +111,8 @@
 	export let webSearchEnabled = false;
 	export let deepSearchEnabled = false;
 	export let codeInterpreterEnabled = false;
+	export let fileSearchEnabled = false;
+	export let fileSearchDirectory = '';
 
 	let showInputVariablesModal = false;
 	let inputVariablesModalCallback = (variableValues) => {};
@@ -141,7 +144,9 @@
 		imageGenerationEnabled,
 		webSearchEnabled,
 		deepSearchEnabled,
-		codeInterpreterEnabled
+		codeInterpreterEnabled,
+		fileSearchEnabled,
+		fileSearchDirectory
 	});
 
 	const inputVariableHandler = async (text: string): Promise<string> => {
@@ -462,6 +467,7 @@
 
 	let showToolsButton = false;
 	$: showToolsButton = ($tools ?? []).length > 0 || ($toolServers ?? []).length > 0;
+	let showFileSearchButton = true;
 
 	let showWebSearchButton = false;
 	$: showWebSearchButton =
@@ -1455,12 +1461,12 @@
 										</div>
 									</InputMenu>
 
-									{#if showWebSearchButton || showDeepSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || (toggleFilters && toggleFilters.length > 0)}
+									{#if showWebSearchButton || showDeepSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || showFileSearchButton || (toggleFilters && toggleFilters.length > 0)}
 										<div
 											class="flex self-center w-[1px] h-4 mx-1 bg-gray-200/50 dark:bg-gray-800/50"
 										/>
 
-											<IntegrationsMenu
+										<IntegrationsMenu
 											selectedModels={atSelectedModel ? [atSelectedModel.id] : selectedModels}
 											{toggleFilters}
 											{showWebSearchButton}
@@ -1473,6 +1479,8 @@
 											bind:deepSearchEnabled
 											bind:imageGenerationEnabled
 											bind:codeInterpreterEnabled
+											bind:fileSearchEnabled
+											bind:fileSearchDirectory
 											closeOnOutsideClick={integrationsMenuCloseOnOutsideClick}
 											onShowValves={(e) => {
 												const { type, id } = e;
@@ -1540,6 +1548,26 @@
 											</Tooltip>
 										{/if}
 
+										{#if fileSearchEnabled}
+											<Tooltip
+												content={`${$i18n.t('File Search Agent')}: ${fileSearchDirectory || $i18n.t('Share root')}`}
+												placement="top"
+											>
+												<button
+													on:click|preventDefault={() => {
+														fileSearchEnabled = false;
+													}}
+													type="button"
+													class="group p-[7px] flex items-center rounded-full text-sky-500 dark:text-sky-300 bg-sky-50 hover:bg-sky-100 dark:bg-sky-400/10 dark:hover:bg-sky-600/10 border border-sky-200/40 dark:border-sky-500/20"
+												>
+													<FolderOpen className="size-4" strokeWidth="1.75" />
+													<div class="hidden group-hover:block">
+														<XMark className="size-4" strokeWidth="1.75" />
+													</div>
+												</button>
+											</Tooltip>
+										{/if}
+
 										{#each selectedFilterIds as filterId}
 											{@const filter = toggleFilters.find((f) => f.id === filterId)}
 											{#if filter}
@@ -1577,48 +1605,47 @@
 											{/if}
 										{/each}
 
-											{#if webSearchEnabled}
-												<Tooltip content={$i18n.t('Web Search')} placement="top">
-													<button
-														on:click|preventDefault={() => {
-															webSearchEnabled = !webSearchEnabled;
-															if (webSearchEnabled) {
-																deepSearchEnabled = false;
-															}
-														}}
-														type="button"
-														class="group p-[7px] flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden {webSearchEnabled ||
+										{#if webSearchEnabled}
+											<Tooltip content={$i18n.t('Web Search')} placement="top">
+												<button
+													on:click|preventDefault={() => {
+														webSearchEnabled = !webSearchEnabled;
+														if (webSearchEnabled) {
+															deepSearchEnabled = false;
+														}
+													}}
+													type="button"
+													class="group p-[7px] flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden {webSearchEnabled ||
 													($settings?.webSearch ?? false) === 'always'
 														? ' text-sky-500 dark:text-sky-300 bg-sky-50 hover:bg-sky-100 dark:bg-sky-400/10 dark:hover:bg-sky-600/10 border border-sky-200/40 dark:border-sky-500/20'
 														: 'bg-transparent text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 '}"
-													>
-														<GlobeAlt className="size-4" strokeWidth="1.75" />
-														<div class="hidden group-hover:block">
-															<XMark className="size-4" strokeWidth="1.75" />
-														</div>
-													</button>
-												</Tooltip>
-											{/if}
+												>
+													<GlobeAlt className="size-4" strokeWidth="1.75" />
+													<div class="hidden group-hover:block">
+														<XMark className="size-4" strokeWidth="1.75" />
+													</div>
+												</button>
+											</Tooltip>
+										{/if}
 
-											{#if deepSearchEnabled}
-												<Tooltip content={$i18n.t('Deep Search')} placement="top">
-													<button
-														on:click|preventDefault={() => {
-															deepSearchEnabled = !deepSearchEnabled;
-														}}
-														type="button"
-														class="group p-[7px] flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden {deepSearchEnabled
-															? ' text-sky-500 dark:text-sky-300 bg-sky-50 hover:bg-sky-100 dark:bg-sky-400/10 dark:hover:bg-sky-600/10 border border-sky-200/40 dark:border-sky-500/20'
-															: 'bg-transparent text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 '}"
-													>
-														<Search className="size-4" strokeWidth="1.75" />
-														<div class="hidden group-hover:block">
-															<XMark className="size-4" strokeWidth="1.75" />
-														</div>
-													</button>
-												</Tooltip>
-											{/if}
-
+										{#if deepSearchEnabled}
+											<Tooltip content={$i18n.t('Deep Search')} placement="top">
+												<button
+													on:click|preventDefault={() => {
+														deepSearchEnabled = !deepSearchEnabled;
+													}}
+													type="button"
+													class="group p-[7px] flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden {deepSearchEnabled
+														? ' text-sky-500 dark:text-sky-300 bg-sky-50 hover:bg-sky-100 dark:bg-sky-400/10 dark:hover:bg-sky-600/10 border border-sky-200/40 dark:border-sky-500/20'
+														: 'bg-transparent text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 '}"
+												>
+													<Search className="size-4" strokeWidth="1.75" />
+													<div class="hidden group-hover:block">
+														<XMark className="size-4" strokeWidth="1.75" />
+													</div>
+												</button>
+											</Tooltip>
+										{/if}
 
 										{#if imageGenerationEnabled}
 											<Tooltip content={$i18n.t('Image')} placement="top">

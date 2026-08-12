@@ -64,6 +64,7 @@
 	import RegenerateMenu from './ResponseMessage/RegenerateMenu.svelte';
 	import StatusHistory from './ResponseMessage/StatusHistory.svelte';
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
+	import LetterDownloadModal from './LetterDownloadModal.svelte';
 
 	const pdfBackground = '/assets/images/pdf_background.png';
 
@@ -177,6 +178,14 @@
 	let loadingSpeech = false;
 	let generatingImage = false;
 	let exportingPdf = false;
+	let showLetterDownload = false;
+
+	$: letterMessages = createMessagesList(history, messageId).map(
+		(entry: { role: string; content: unknown }) => ({
+			role: entry.role,
+			content: typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content)
+		})
+	);
 
 	let showRateComment = false;
 
@@ -972,6 +981,12 @@
 	}}
 />
 
+<LetterDownloadModal
+	bind:show={showLetterDownload}
+	messages={letterMessages}
+	model={message.model || ''}
+/>
+
 {#key message.id}
 	<div
 		class=" flex w-full message-{message.id}"
@@ -1388,6 +1403,32 @@
 												stroke-linecap="round"
 												stroke-linejoin="round"
 												d="M19.5 14.25V9.621a1.5 1.5 0 0 0-.439-1.06l-4.122-4.122A1.5 1.5 0 0 0 13.879 4H8.25A2.25 2.25 0 0 0 6 6.25v11.5A2.25 2.25 0 0 0 8.25 20h7.5A2.25 2.25 0 0 0 18 17.75M12 11.25v5.25m0 0 2.25-2.25M12 16.5l-2.25-2.25"
+											/>
+										</svg>
+									</button>
+								</Tooltip>
+
+								<Tooltip content={$i18n.t('Download letter')} placement="bottom">
+									<button
+										aria-label={$i18n.t('Download letter')}
+										class="{isLastMessage || ($settings?.highContrastMode ?? false)
+											? 'visible'
+											: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
+										on:click={() => (showLetterDownload = true)}
+									>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											fill="none"
+											viewBox="0 0 24 24"
+											stroke-width="2.3"
+											stroke="currentColor"
+											class="w-4 h-4"
+											aria-hidden="true"
+										>
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												d="M21.75 6.75v10.5A2.25 2.25 0 0 1 19.5 19.5h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0-8.69 5.793a1.5 1.5 0 0 1-1.664 0L2.25 6.75"
 											/>
 										</svg>
 									</button>

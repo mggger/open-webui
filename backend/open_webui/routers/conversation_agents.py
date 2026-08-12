@@ -1,7 +1,11 @@
 import logging
+import re
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from open_webui.models.conversation_agents import (
     ConversationAgents,
@@ -13,13 +17,27 @@ from open_webui.models.conversation_agents import (
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import SRC_LOG_LEVELS
 
-from open_webui.utils.auth import get_admin_user
+from open_webui.utils.auth import get_admin_user, get_verified_user
+from open_webui.utils.archer_letter import fill_template
 
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MODELS"])
 
 router = APIRouter()
+
+
+class ArcherLetterForm(BaseModel):
+    date: str
+    recipient_name: str
+    recipient_title_company: str
+    street_address: str
+    city_state_postcode: str
+    opening_paragraph: str
+    body_paragraph: str
+    closing_paragraph: str
+    sender_name: str
+    sender_title: str
 
 
 ############################
@@ -30,6 +48,27 @@ router = APIRouter()
 @router.get("/", response_model=list[ConversationAgentModel])
 async def get_agents(request: Request, user=Depends(get_admin_user)):
     return ConversationAgents.get_agents()
+
+
+@router.post("/letter/download")
+async def download_archer_letter(
+    form_data: ArcherLetterForm, user=Depends(get_verified_user)
+):
+    template = Path(__file__).resolve().parents[3] / "docs" / "archer_template.docx"
+    if not template.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Letter template is not available",
+        )
+
+    document = fill_template(template, form_data.model_dump())
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", form_data.recipient_name).strip("-")
+    filename = f"Archer-Letter-{safe_name or 'recipient'}.docx"
+    return StreamingResponse(
+        document,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 ############################

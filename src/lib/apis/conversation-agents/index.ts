@@ -13,7 +13,6 @@ export type ConversationAgent = {
 	created_at: number;
 	updated_at: number;
 };
-
 export type ConversationAgentForm = {
 	name: string;
 	description?: string | null;
@@ -22,38 +21,6 @@ export type ConversationAgentForm = {
 	voice_config?: object | null;
 	meta?: object | null;
 	access_control?: object | null;
-};
-
-export type ArcherLetterForm = {
-	date: string;
-	recipient_name: string;
-	recipient_title_company: string;
-	street_address: string;
-	city_state_postcode: string;
-	opening_paragraph: string;
-	body_paragraph: string;
-	closing_paragraph: string;
-	sender_name: string;
-	sender_title: string;
-};
-
-export const downloadArcherLetter = async (
-	token: string,
-	form: ArcherLetterForm
-): Promise<Blob> => {
-	const res = await fetch(`${WEBUI_API_BASE_URL}/conversation-agents/letter/download`, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			authorization: `Bearer ${token}`
-		},
-		body: JSON.stringify(form)
-	});
-	if (!res.ok) {
-		const error = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-		throw error?.detail ?? `HTTP ${res.status}`;
-	}
-	return res.blob();
 };
 
 export const getConversationAgents = async (token: string): Promise<ConversationAgent[]> => {

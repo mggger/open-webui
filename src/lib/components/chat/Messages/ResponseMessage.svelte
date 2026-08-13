@@ -64,9 +64,8 @@
 	import RegenerateMenu from './ResponseMessage/RegenerateMenu.svelte';
 	import StatusHistory from './ResponseMessage/StatusHistory.svelte';
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
-	import LetterDownloadModal from './LetterDownloadModal.svelte';
 
-	const pdfBackground = '/assets/images/pdf_background.png';
+	const pdfLetterheadLogo = '/assets/images/archer_letterhead_logo.svg';
 
 	interface MessageType {
 		id: string;
@@ -178,14 +177,6 @@
 	let loadingSpeech = false;
 	let generatingImage = false;
 	let exportingPdf = false;
-	let showLetterDownload = false;
-
-	$: letterMessages = createMessagesList(history, messageId).map(
-		(entry: { role: string; content: unknown }) => ({
-			role: entry.role,
-			content: typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content)
-		})
-	);
 
 	let showRateComment = false;
 
@@ -596,23 +587,19 @@
 			// A4 dimensions in mm
 			const pageWidthMM = 210;
 			const pageHeightMM = 297;
-			// First-page top offset (mm) — updated after measuring the header artwork.
-			let firstPageTopOffsetMM = 80;
-			// Subsequent-page top/bottom margin (mm) — keeps body from hugging edges
-			const subsequentPageTopMM = 18;
-			const pageBottomMM = 15;
+			// These measurements mirror the header/footer regions in archer_template.docx.
+			const bodyTopMM = 38;
+			const bodyBottomMM = 32;
 			// Side margin (mm)
 			const sideMarginMM = 15;
 
-			// Compress the brand/header artwork to a small JPEG so embedding it does not
-			// blow up the PDF. Wide artwork is treated as a top header; A4-proportioned
-			// artwork remains supported as a full-page background.
-			let bgJpegDataUrl: string | null = null;
-			let bgHeightMM = pageHeightMM;
-			if (pdfBackground) {
+			// Load the exact logo embedded in the DOCX template. The surrounding header
+			// and footer text is drawn as vector text so it remains sharp in the PDF.
+			let letterheadLogoDataUrl: string | null = null;
+			if (pdfLetterheadLogo) {
 				try {
-					const res = await fetch(pdfBackground);
-					if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+					const res = await fetch(pdfLetterheadLogo);
+					if (!res.ok) throw new globalThis.Error(`fetch failed: ${res.status}`);
 					const blob = await res.blob();
 					const sourceDataUrl: string = await new Promise((resolve, reject) => {
 						const reader = new FileReader();
@@ -626,36 +613,17 @@
 						img.onerror = reject;
 						img.src = sourceDataUrl;
 					});
-					const sourceAspect = srcImg.naturalWidth / srcImg.naturalHeight;
-					const pageAspect = pageWidthMM / pageHeightMM;
-					const isFullPageArtwork = Math.abs(sourceAspect - pageAspect) < 0.08;
-
-					const targetWidth = 1240; // ~150dpi at A4 — sharp enough for flat artwork
-					const targetHeight = isFullPageArtwork
-						? Math.round((targetWidth * pageHeightMM) / pageWidthMM)
-						: Math.round(targetWidth / sourceAspect);
-					const bgCanvas = document.createElement('canvas');
-					bgCanvas.width = targetWidth;
-					bgCanvas.height = targetHeight;
-					const bgCtx = bgCanvas.getContext('2d');
-					if (bgCtx) {
-						bgCtx.fillStyle = '#ffffff';
-						bgCtx.fillRect(0, 0, targetWidth, targetHeight);
-						bgCtx.drawImage(srcImg, 0, 0, targetWidth, targetHeight);
-						bgJpegDataUrl = bgCanvas.toDataURL('image/jpeg', 0.85);
-
-						bgHeightMM = isFullPageArtwork ? pageHeightMM : pageWidthMM / sourceAspect;
-						if (!isFullPageArtwork) {
-							const headerGapMM = 8;
-							const minBodyHeightMM = 80;
-							firstPageTopOffsetMM = Math.min(
-								bgHeightMM + headerGapMM,
-								pageHeightMM - pageBottomMM - minBodyHeightMM
-							);
-						}
+					const logoCanvas = document.createElement('canvas');
+					logoCanvas.width = 484;
+					logoCanvas.height = 368;
+					const logoCtx = logoCanvas.getContext('2d');
+					if (logoCtx) {
+						logoCtx.clearRect(0, 0, logoCanvas.width, logoCanvas.height);
+						logoCtx.drawImage(srcImg, 0, 0, logoCanvas.width, logoCanvas.height);
+						letterheadLogoDataUrl = logoCanvas.toDataURL('image/png');
 					}
 				} catch (err) {
-					console.warn('Unable to prepare PDF background', err);
+					console.warn('Unable to prepare PDF letterhead logo', err);
 				}
 			}
 
@@ -666,8 +634,7 @@
 				const renderedHtml = (await marked.parse(rawMarkdown)) as string;
 
 				// Build an off-screen wrapper at A4-printable pixel width (794px ≈ 210mm @ 96dpi).
-				// No top padding here — the PDF page-1 slice is placed at firstPageTopOffsetMM
-				// from the page top, leaving room for the header artwork.
+				// The captured response is placed between the repeated DOCX header and footer.
 				const virtualWidthPx = 794;
 				const sideMarginPx = Math.round((sideMarginMM / pageWidthMM) * virtualWidthPx);
 
@@ -761,13 +728,61 @@
 
 				// Slice the tall canvas into A4 pages, embed each slice as JPEG.
 				const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'p' });
+				const drawLetterhead = () => {
+					if (letterheadLogoDataUrl) {
+						pdf.addImage(letterheadLogoDataUrl, 'PNG', 15, 10.5, 14, 10.65, undefined, 'FAST');
+					}
+
+					pdf.setTextColor(29, 31, 32);
+					pdf.setFont('times', 'bold');
+					pdf.setFontSize(17);
+					pdf.text('ARCHER & ROUND', 33, 16.8);
+					pdf.setTextColor(79, 119, 164);
+					pdf.setFontSize(8.5);
+					pdf.text('GOVERN. ASSURE. PROTECT.', 33, 22.2);
+
+					pdf.setFontSize(8);
+					pdf.text('EST. 1996', 195, 13.4, { align: 'right' });
+					pdf.setTextColor(105, 105, 105);
+					pdf.setFont('times', 'normal');
+					pdf.text('archerround.com', 195, 17.1, { align: 'right' });
+					pdf.text('1800 841 224', 195, 20.8, { align: 'right' });
+					pdf.text('ABN 95 625 698 106', 195, 24.5, { align: 'right' });
+
+					pdf.setDrawColor(79, 119, 164);
+					pdf.setLineWidth(0.8);
+					pdf.line(15, 30.5, 195, 30.5);
+
+					pdf.setDrawColor(201, 205, 210);
+					pdf.setLineWidth(0.3);
+					pdf.line(15, 267, 195, 267);
+					pdf.setFontSize(7.2);
+					pdf.setTextColor(79, 119, 164);
+					pdf.setFont('times', 'bold');
+					pdf.text('AUSTRALIA', 15, 272);
+					pdf.text('UNITED STATES', 75, 272);
+					pdf.text('CONNECT', 195, 272, { align: 'right' });
+					pdf.setTextColor(105, 105, 105);
+					pdf.setFont('times', 'normal');
+					pdf.text(
+						['Suite 1677, 1 Denison Street', 'North Sydney, NSW 2060', '1800 841 224'],
+						15,
+						276
+					);
+					pdf.text(
+						['1200 Wilshire Blvd, Suite 800', 'Los Angeles, CA 90025', '+1 626 380 0102'],
+						75,
+						276
+					);
+					pdf.text(['archerround.com', 'linkedin.com/company/archer-round'], 195, 276, {
+						align: 'right'
+					});
+				};
 				const mmPerPx = pageWidthMM / canvas.width;
 				const totalHeightPx = canvas.height;
 				// Convert mm thresholds to canvas-pixel-space so we can compare with breakpoints
-				const firstPageBodyHeightMM = pageHeightMM - firstPageTopOffsetMM - pageBottomMM;
-				const subsequentBodyHeightMM = pageHeightMM - subsequentPageTopMM - pageBottomMM;
-				const firstPageBodyHeightPx = Math.floor(firstPageBodyHeightMM / mmPerPx);
-				const subsequentBodyHeightPx = Math.floor(subsequentBodyHeightMM / mmPerPx);
+				const pageBodyHeightMM = pageHeightMM - bodyTopMM - bodyBottomMM;
+				const pageBodyHeightPx = Math.floor(pageBodyHeightMM / mmPerPx);
 
 				// Breakable points were measured in CSS px before rasterizing. Scale to canvas px.
 				const breakableCanvasPx = breakablePx
@@ -778,7 +793,7 @@
 				let pageIndex = 0;
 
 				while (offsetY < totalHeightPx) {
-					const maxPageBodyPx = pageIndex === 0 ? firstPageBodyHeightPx : subsequentBodyHeightPx;
+					const maxPageBodyPx = pageBodyHeightPx;
 					const remainingPx = totalHeightPx - offsetY;
 
 					let sliceHeightPx: number;
@@ -825,14 +840,10 @@
 
 					if (pageIndex > 0) pdf.addPage();
 
-					// Page 1: paint the brand artwork first, then draw the body below
-					// the header area so the logo stays visible.
-					if (pageIndex === 0 && bgJpegDataUrl) {
-						pdf.addImage(bgJpegDataUrl, 'JPEG', 0, 0, pageWidthMM, bgHeightMM, undefined, 'FAST');
-					}
+					drawLetterhead();
 
 					const sliceHeightMM = sliceHeightPx * mmPerPx;
-					const sliceYMM = pageIndex === 0 ? firstPageTopOffsetMM : subsequentPageTopMM;
+					const sliceYMM = bodyTopMM;
 					const sliceJpeg = pageCanvas.toDataURL('image/jpeg', 0.75);
 					pdf.addImage(
 						sliceJpeg,
@@ -979,12 +990,6 @@
 	on:confirm={() => {
 		deleteMessageHandler();
 	}}
-/>
-
-<LetterDownloadModal
-	bind:show={showLetterDownload}
-	messages={letterMessages}
-	model={message.model || ''}
 />
 
 {#key message.id}
@@ -1403,32 +1408,6 @@
 												stroke-linecap="round"
 												stroke-linejoin="round"
 												d="M19.5 14.25V9.621a1.5 1.5 0 0 0-.439-1.06l-4.122-4.122A1.5 1.5 0 0 0 13.879 4H8.25A2.25 2.25 0 0 0 6 6.25v11.5A2.25 2.25 0 0 0 8.25 20h7.5A2.25 2.25 0 0 0 18 17.75M12 11.25v5.25m0 0 2.25-2.25M12 16.5l-2.25-2.25"
-											/>
-										</svg>
-									</button>
-								</Tooltip>
-
-								<Tooltip content={$i18n.t('Download letter')} placement="bottom">
-									<button
-										aria-label={$i18n.t('Download letter')}
-										class="{isLastMessage || ($settings?.highContrastMode ?? false)
-											? 'visible'
-											: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
-										on:click={() => (showLetterDownload = true)}
-									>
-										<svg
-											xmlns="http://www.w3.org/2000/svg"
-											fill="none"
-											viewBox="0 0 24 24"
-											stroke-width="2.3"
-											stroke="currentColor"
-											class="w-4 h-4"
-											aria-hidden="true"
-										>
-											<path
-												stroke-linecap="round"
-												stroke-linejoin="round"
-												d="M21.75 6.75v10.5A2.25 2.25 0 0 1 19.5 19.5h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0-8.69 5.793a1.5 1.5 0 0 1-1.664 0L2.25 6.75"
 											/>
 										</svg>
 									</button>

@@ -3,13 +3,9 @@
 	import { toast } from 'svelte-sonner';
 
 	import { synthesizeOpenAISpeech } from '$lib/apis/audio';
-	import { settings, user } from '$lib/stores';
+	import { settings } from '$lib/stores';
 	import { WEBUI_BASE_URL } from '$lib/constants';
-	import {
-		downloadArcherLetter,
-		type ArcherLetterForm,
-		type ConversationAgent
-	} from '$lib/apis/conversation-agents';
+	import type { ConversationAgent } from '$lib/apis/conversation-agents';
 	import Markdown from '$lib/components/chat/Messages/Markdown.svelte';
 
 	const i18n = getContext('i18n');
@@ -50,14 +46,13 @@ You are speaking to the user through a voice interface. Your reply will be read 
 	const counterpartSubline = [scenario.counterpart_role, scenario.counterpart_company]
 		.filter(Boolean)
 		.join(' · ');
-	const initials =
-		(counterpartName || '?')
-			.replace(/[^\p{L}\p{N}\s]/gu, '')
-			.split(/\s+/)
-			.filter(Boolean)
-			.slice(0, 2)
-			.map((s: string) => s[0]?.toUpperCase() ?? '')
-			.join('') || '?';
+	const initials = (counterpartName || '?')
+		.replace(/[^\p{L}\p{N}\s]/gu, '')
+		.split(/\s+/)
+		.filter(Boolean)
+		.slice(0, 2)
+		.map((s: string) => s[0]?.toUpperCase() ?? '')
+		.join('') || '?';
 
 	let status:
 		| 'idle'
@@ -91,34 +86,6 @@ You are speaking to the user through a voice interface. Your reply will be read 
 	let showDebrief = false;
 	let debriefLoading = false;
 	let debriefText = '';
-	let letterLoading = false;
-	let letterDownloading = false;
-	let showLetterForm = false;
-	let letterFields: ArcherLetterForm = {
-		date: '',
-		recipient_name: '',
-		recipient_title_company: '',
-		street_address: '',
-		city_state_postcode: '',
-		opening_paragraph: '',
-		body_paragraph: '',
-		closing_paragraph: '',
-		sender_name: '',
-		sender_title: ''
-	};
-
-	const letterLabels: { key: keyof ArcherLetterForm; label: string; multiline?: boolean }[] = [
-		{ key: 'date', label: 'Date' },
-		{ key: 'recipient_name', label: 'Recipient name' },
-		{ key: 'recipient_title_company', label: 'Title / company' },
-		{ key: 'street_address', label: 'Street address' },
-		{ key: 'city_state_postcode', label: 'City, state, postcode' },
-		{ key: 'opening_paragraph', label: 'Opening paragraph', multiline: true },
-		{ key: 'body_paragraph', label: 'Body paragraph', multiline: true },
-		{ key: 'closing_paragraph', label: 'Closing paragraph', multiline: true },
-		{ key: 'sender_name', label: 'Your name' },
-		{ key: 'sender_title', label: 'Your title' }
-	];
 
 	const EMOJI_REGEX = /(\p{Extended_Pictographic}(?:️|‍)?)+/gu;
 
@@ -139,10 +106,7 @@ You are speaking to the user through a voice interface. Your reply will be read 
 		text = text.replace(/^\s*\|.*\|\s*$/gm, ' ');
 		text = text.replace(/^-{3,}$/gm, ' ');
 		text = text.replace(EMOJI_REGEX, ' ');
-		text = text
-			.replace(/[ \t]+/g, ' ')
-			.replace(/\n{2,}/g, '\n')
-			.trim();
+		text = text.replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim();
 		return text;
 	};
 
@@ -234,7 +198,9 @@ You are speaking to the user through a voice interface. Your reply will be read 
 			.map((m) => `${m.role === 'user' ? 'You' : counterpartName}: ${m.content}`)
 			.join('\n');
 
-		const memoryBlock = memorySummary ? `\n\nEarlier conversation summary:\n${memorySummary}` : '';
+		const memoryBlock = memorySummary
+			? `\n\nEarlier conversation summary:\n${memorySummary}`
+			: '';
 
 		const prompt = `You are a communication coach reviewing a role-play conversation the user just completed. The user was practicing for a real business interaction. The "counterpart" (${counterpartName}) was being played by an AI based on a scenario the user set up.
 
@@ -284,8 +250,8 @@ ${transcript}`;
 				return;
 			}
 			const j = await res.json();
-			debriefText =
-				(j?.choices?.[0]?.message?.content ?? '').trim() || $i18n.t('No debrief returned.');
+			debriefText = (j?.choices?.[0]?.message?.content ?? '').trim() ||
+				$i18n.t('No debrief returned.');
 		} catch (e) {
 			err('debrief threw', e);
 			debriefText = $i18n.t('Could not generate debrief.');
@@ -495,8 +461,11 @@ ${transcript}`;
 
 		const messages: Msg[] = [];
 		const baseSystem = (agent.system_prompt || '').trim();
-		const memoryBlock = memorySummary ? `\n\n# Conversation memory so far\n${memorySummary}` : '';
-		const systemContent = (baseSystem || '') + memoryBlock + VOICE_DIALOG_STYLE_PROMPT;
+		const memoryBlock = memorySummary
+			? `\n\n# Conversation memory so far\n${memorySummary}`
+			: '';
+		const systemContent =
+			(baseSystem || '') + memoryBlock + VOICE_DIALOG_STYLE_PROMPT;
 		messages.push({ role: 'system', content: systemContent.trim() });
 		messages.push(...history);
 
@@ -766,123 +735,6 @@ ${transcript}`;
 			toast.error($i18n.t('Copy failed'));
 		}
 	};
-
-	const parseJsonObject = (raw: string): Record<string, unknown> => {
-		const cleaned = raw
-			.replace(/^```(?:json)?\s*/i, '')
-			.replace(/\s*```$/i, '')
-			.trim();
-		const start = cleaned.indexOf('{');
-		const end = cleaned.lastIndexOf('}');
-		if (start < 0 || end < start) throw new Error('No JSON object returned');
-		return JSON.parse(cleaned.slice(start, end + 1));
-	};
-
-	const downloadLetter = async () => {
-		letterDownloading = true;
-		try {
-			const blob = await downloadArcherLetter(localStorage.token, letterFields);
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement('a');
-			a.href = url;
-			a.download = `Archer-Letter-${letterFields.recipient_name || 'recipient'}.docx`;
-			a.click();
-			URL.revokeObjectURL(url);
-			showLetterForm = false;
-		} catch (e) {
-			console.error(e);
-			toast.error(typeof e === 'string' ? e : $i18n.t('Could not generate letter'));
-		} finally {
-			letterDownloading = false;
-		}
-	};
-
-	const prepareLetter = async () => {
-		letterLoading = true;
-		const transcript = history
-			.map((m) => `${m.role === 'user' ? 'User' : counterpartName}: ${m.content}`)
-			.join('\n');
-		const scenarioJson = JSON.stringify(scenario);
-		const today = new Intl.DateTimeFormat(undefined, {
-			year: 'numeric',
-			month: 'long',
-			day: 'numeric'
-		}).format(new Date());
-		const prompt = `Create the data for a professional follow-up business letter based on this role-play conversation.
-
-Return ONLY one valid JSON object with exactly these string keys:
-date, recipient_name, recipient_title_company, street_address, city_state_postcode, opening_paragraph, body_paragraph, closing_paragraph, sender_name, sender_title.
-
-Rules:
-- Extract concrete member/customer details from the scenario and conversation. Prefer scenario identity fields when available.
-- Never invent names, titles, companies, addresses, promises, prices, dates, or outcomes. Use an empty string when a factual identity/address/sender field is unknown.
-- The three paragraph fields should be polished letter prose grounded only in the conversation: purpose/context, key details or agreed points, and next step/call to action.
-- Do not include a greeting, sign-off, markdown, or placeholders in the paragraph fields.
-- Use "${today}" for date.
-- The sender is the real user, whose account display name is ${JSON.stringify($user?.name ?? '')}. Do not treat the AI counterpart as the sender.
-
-Scenario:
-${scenarioJson}
-
-Earlier conversation summary (may be empty):
-${memorySummary}
-
-Transcript:
-${transcript}
-
-Debrief:
-${debriefText}`;
-
-		try {
-			const res = await fetch(`${WEBUI_BASE_URL}/api/chat/completions`, {
-				method: 'POST',
-				headers: {
-					Authorization: `Bearer ${localStorage.token}`,
-					'Content-Type': 'application/json'
-				},
-				credentials: 'include',
-				body: JSON.stringify({
-					model: agent.model_id,
-					messages: [{ role: 'user', content: prompt }],
-					stream: false
-				})
-			});
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			const json = await res.json();
-			const extracted = parseJsonObject(json?.choices?.[0]?.message?.content ?? '');
-			letterFields = Object.fromEntries(
-				letterLabels.map(({ key }) => [key, String(extracted[key] ?? '').trim()])
-			) as ArcherLetterForm;
-			letterFields.date ||= today;
-			letterFields.recipient_name ||= scenario.counterpart_name ?? '';
-			letterFields.recipient_title_company ||= [
-				scenario.counterpart_role,
-				scenario.counterpart_company
-			]
-				.filter(Boolean)
-				.join(' / ');
-			letterFields.sender_name ||= $user?.name ?? '';
-
-			const hasMissing = letterLabels.some(({ key }) => !letterFields[key].trim());
-			if (hasMissing) showLetterForm = true;
-			else await downloadLetter();
-		} catch (e) {
-			console.error(e);
-			toast.error($i18n.t('Could not extract letter details. Please fill them manually.'));
-			letterFields.date ||= today;
-			letterFields.recipient_name ||= scenario.counterpart_name ?? '';
-			letterFields.recipient_title_company ||= [
-				scenario.counterpart_role,
-				scenario.counterpart_company
-			]
-				.filter(Boolean)
-				.join(' / ');
-			letterFields.sender_name ||= $user?.name ?? '';
-			showLetterForm = true;
-		} finally {
-			letterLoading = false;
-		}
-	};
 </script>
 
 <div class="fixed inset-0 z-50 bg-gradient-to-b from-gray-900 to-black flex flex-col">
@@ -951,12 +803,12 @@ ${debriefText}`;
 					{status === 'listening' && hasStartedSpeaking
 					? 'bg-red-500 animate-pulse'
 					: status === 'listening'
-						? 'bg-green-500'
-						: status === 'speaking'
-							? 'bg-blue-500 animate-pulse'
-							: status === 'thinking' || status === 'transcribing'
-								? 'bg-yellow-500 animate-pulse'
-								: 'bg-white/30'}"
+					? 'bg-green-500'
+					: status === 'speaking'
+					? 'bg-blue-500 animate-pulse'
+					: status === 'thinking' || status === 'transcribing'
+					? 'bg-yellow-500 animate-pulse'
+					: 'bg-white/30'}"
 				aria-label={statusLabel}
 			>
 				<svg
@@ -1014,18 +866,10 @@ ${debriefText}`;
 						{$i18n.t('Reviewing the conversation...')}
 					</div>
 				{:else}
-					<div class="markdown-prose text-sm leading-relaxed text-gray-800 dark:text-gray-200">
+					<div
+						class="markdown-prose text-sm leading-relaxed text-gray-800 dark:text-gray-200"
+					>
 						<Markdown id="conversation-agent-debrief" content={debriefText} />
-					</div>
-					<div class="mt-5 pt-4 border-t border-gray-200 dark:border-gray-800">
-						<button
-							type="button"
-							class="w-full px-4 py-2 rounded-lg text-sm border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition disabled:opacity-50"
-							disabled={letterLoading || !debriefText}
-							on:click={prepareLetter}
-						>
-							{letterLoading ? $i18n.t('Preparing letter...') : $i18n.t('Download letter')}
-						</button>
 					</div>
 				{/if}
 			</div>
@@ -1046,58 +890,6 @@ ${debriefText}`;
 					on:click={finalClose}
 				>
 					{$i18n.t('Close')}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
-
-{#if showLetterForm}
-	<div class="fixed inset-0 z-[70] bg-black/80 flex items-center justify-center p-4">
-		<div
-			class="w-full max-w-2xl max-h-[90vh] bg-white dark:bg-gray-900 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-		>
-			<div class="px-5 py-4 border-b border-gray-200 dark:border-gray-800">
-				<div class="text-base font-semibold">{$i18n.t('Complete letter details')}</div>
-				<div class="text-xs text-gray-500 mt-1">
-					{$i18n.t(
-						'We filled everything found in the conversation. Complete any missing fields before downloading.'
-					)}
-				</div>
-			</div>
-			<div class="flex-1 overflow-y-auto px-5 py-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-				{#each letterLabels.filter((field) => !field.multiline) as field}
-					<div>
-						<label
-							class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"
-							for={`letter-${field.key}`}
-						>
-							{$i18n.t(field.label)}{#if !letterFields[field.key].trim()}<span
-									class="text-red-500 ml-1">*</span
-								>{/if}
-						</label>
-						<input
-							id={`letter-${field.key}`}
-							type="text"
-							class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-800 bg-transparent text-sm"
-							bind:value={letterFields[field.key]}
-						/>
-					</div>
-				{/each}
-			</div>
-			<div class="px-5 py-3 border-t border-gray-200 dark:border-gray-800 flex justify-end gap-2">
-				<button
-					type="button"
-					class="px-3 py-1.5 rounded-lg text-sm border border-gray-200 dark:border-gray-800"
-					on:click={() => (showLetterForm = false)}>{$i18n.t('Cancel')}</button
-				>
-				<button
-					type="button"
-					class="px-4 py-1.5 rounded-lg text-sm bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 disabled:opacity-50"
-					disabled={letterDownloading || letterLabels.some(({ key }) => !letterFields[key].trim())}
-					on:click={downloadLetter}
-				>
-					{letterDownloading ? $i18n.t('Generating...') : $i18n.t('Download letter')}
 				</button>
 			</div>
 		</div>

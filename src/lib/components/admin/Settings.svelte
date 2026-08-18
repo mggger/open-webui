@@ -11,6 +11,7 @@
 	import General from './Settings/General.svelte';
 	import Pipelines from './Settings/Pipelines.svelte';
 	import Audio from './Settings/Audio.svelte';
+	import Brain from './Settings/Brain.svelte';
 	import Images from './Settings/Images.svelte';
 	import Interface from './Settings/Interface.svelte';
 	import Models from './Settings/Models.svelte';
@@ -42,12 +43,13 @@
 			'evaluations',
 			'tools',
 			'documents',
-		'web',
-		'deep-search',
-		'vtiger',
-		'code-execution',
+			'web',
+			'deep-search',
+			'vtiger',
+			'code-execution',
 			'interface',
 			'audio',
+			'brain',
 			'images',
 			'pipelines',
 			'db'
@@ -392,6 +394,26 @@
 		</button>
 
 		<button
+			id="brain"
+			class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
+			'brain'
+				? ''
+				: ' text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
+			on:click={() => goto('/admin/settings/brain')}
+		>
+			<div class="self-center mr-2 text-indigo-500">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="size-4"
+					><path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						d="M9.5 4.5A3.5 3.5 0 0 0 6 8v1a3 3 0 0 0 0 6v1a3.5 3.5 0 0 0 6 2.45A3.5 3.5 0 0 0 18 16v-1a3 3 0 0 0 0-6V8a3.5 3.5 0 0 0-6-2.45A3.5 3.5 0 0 0 9.5 4.5ZM12 5.5v13M8.5 9.5H12m0 5h3.5"
+					/></svg
+				>
+			</div>
+			<div class="self-center">Brain</div>
+		</button>
+
+		<button
 			id="images"
 			class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
 			'images'
@@ -560,6 +582,8 @@
 					toast.success($i18n.t('Settings saved successfully!'));
 				}}
 			/>
+		{:else if selectedTab === 'brain'}
+			<Brain />
 		{:else if selectedTab === 'images'}
 			<Images
 				on:save={() => {

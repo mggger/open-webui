@@ -37,7 +37,10 @@ asgiref==3.11.0
 
 # AI libraries
 tiktoken
-mcp==1.22.0
+mcp>=1.24.0,<2
+livekit-api>=1.0.7
+livekit-agents[mcp]==1.6.10
+livekit-plugins-openai>=1.6.10
 
 openai
 anthropic

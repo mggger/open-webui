@@ -44,7 +44,9 @@ dependencies = [
     "asgiref==3.11.0",
 
     "tiktoken",
-    "mcp==1.22.0",
+    "mcp>=1.24.0,<2",
+    "livekit-agents[mcp]==1.6.10",
+    "livekit-plugins-openai>=1.6.10",
 
     "openai",
     "anthropic",
@@ -138,8 +140,8 @@ postgres = [
 
 all = [
     "pymongo",
-    "psycopg2-binary==2.9.9",
-    "pgvector==0.4.0",
+    "psycopg2-binary==2.9.10",
+    "pgvector==0.4.1",
     "moto[s3]>=5.0.26",
     "gcp-storage-emulator>=2024.8.3",
     "docker~=7.1.0",

@@ -1,4 +1,5 @@
 import asyncio
+import io
 import hashlib
 import json
 import logging
@@ -17,6 +18,7 @@ import aiohttp
 import aiofiles
 import requests
 import mimetypes
+import wave
 
 from fastapi import (
     Depends,
@@ -1650,6 +1652,55 @@ def _run_whisper_sync(model, pcm_i16_bytes: bytes, language: Optional[str]):
     return "".join(seg.text for seg in segments).strip()
 
 
+def _pcm_to_wav(pcm_i16_bytes: bytes) -> bytes:
+    output = io.BytesIO()
+    with wave.open(output, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(STREAM_SAMPLE_RATE)
+        wav.writeframes(pcm_i16_bytes)
+    return output.getvalue()
+
+
+async def _run_openai_stt(app, user, pcm_i16_bytes: bytes, language: Optional[str]):
+    base_url = app.state.config.STT_OPENAI_API_BASE_URL.rstrip("/")
+    if not base_url:
+        raise RuntimeError("OpenAI STT base URL is not configured")
+
+    form = aiohttp.FormData()
+    form.add_field(
+        "file",
+        _pcm_to_wav(pcm_i16_bytes),
+        filename="conversation.wav",
+        content_type="audio/wav",
+    )
+    form.add_field("model", app.state.config.STT_MODEL or "whisper-1")
+    if language:
+        form.add_field("language", language)
+
+    headers = {
+        "Authorization": f"Bearer {app.state.config.STT_OPENAI_API_KEY or 'EMPTY'}"
+    }
+    if user and ENABLE_FORWARD_USER_INFO_HEADERS:
+        headers = include_user_info_headers(headers, user)
+
+    timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+        async with session.post(
+            f"{base_url}/audio/transcriptions",
+            data=form,
+            headers=headers,
+            ssl=AIOHTTP_CLIENT_SESSION_SSL,
+        ) as response:
+            if response.status >= 400:
+                detail = await response.text()
+                raise RuntimeError(
+                    f"OpenAI STT returned HTTP {response.status}: {detail}"
+                )
+            data = await response.json()
+            return str(data.get("text", "")).strip()
+
+
 @router.websocket("/stream")
 async def audio_stream(websocket: WebSocket):
     await websocket.accept()
@@ -1660,14 +1711,14 @@ async def audio_stream(websocket: WebSocket):
     app = websocket.app
     language = websocket.query_params.get("language") or None
 
-    if app.state.config.STT_ENGINE not in ("", None):
+    stt_engine = app.state.config.STT_ENGINE or ""
+    if stt_engine not in ("", "openai"):
         await websocket.send_json(
             {
                 "type": "error",
                 "error": (
-                    "Streaming STT currently supports only the built-in "
-                    "Whisper engine. Switch STT engine to 'Whisper' in "
-                    "admin settings."
+                    "Streaming STT supports the built-in Whisper and "
+                    "OpenAI-compatible engines only."
                 ),
             }
         )
@@ -1683,7 +1734,8 @@ async def audio_stream(websocket: WebSocket):
         await websocket.close()
         return
 
-    if app.state.faster_whisper_model is None:
+    whisper_model = None
+    if stt_engine == "" and app.state.faster_whisper_model is None:
         try:
             app.state.faster_whisper_model = await asyncio.to_thread(
                 set_faster_whisper_model, app.state.config.WHISPER_MODEL
@@ -1696,7 +1748,8 @@ async def audio_stream(websocket: WebSocket):
             await websocket.close()
             return
 
-    whisper_model = app.state.faster_whisper_model
+    if stt_engine == "":
+        whisper_model = app.state.faster_whisper_model
 
     await websocket.send_json({"type": "ready"})
 
@@ -1730,11 +1783,14 @@ async def audio_stream(websocket: WebSocket):
         vad.reset()
         await websocket.send_json({"type": "speech_end"})
         try:
-            text = await asyncio.to_thread(
-                _run_whisper_sync, whisper_model, pcm, language
-            )
+            if stt_engine == "openai":
+                text = await _run_openai_stt(app, user, pcm, language)
+            else:
+                text = await asyncio.to_thread(
+                    _run_whisper_sync, whisper_model, pcm, language
+                )
         except Exception as e:
-            log.exception("Whisper transcription failed")
+            log.exception("Streaming transcription failed")
             await websocket.send_json(
                 {"type": "error", "error": f"Transcription failed: {e}"}
             )

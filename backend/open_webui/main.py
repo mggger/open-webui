@@ -98,6 +98,7 @@ from open_webui.routers import (
     vtiger,
     big_events,
     file_search,
+    brain,
 )
 
 from open_webui.routers.retrieval import (
@@ -584,6 +585,11 @@ async def lifespan(app: FastAPI):
     app.state.instance_id = INSTANCE_ID
     start_logger()
 
+    from open_webui.utils.brain_agent import EmbeddedBrainAgent
+
+    app.state.brain_agent = EmbeddedBrainAgent(app)
+    await app.state.brain_agent.start()
+
     if RESET_CONFIG_ON_START:
         reset_config()
 
@@ -642,6 +648,8 @@ async def lifespan(app: FastAPI):
         )
 
     yield
+
+    await app.state.brain_agent.stop()
 
     if hasattr(app.state, "redis_task_command_listener"):
         app.state.redis_task_command_listener.cancel()
@@ -1410,6 +1418,7 @@ app.include_router(
     file_search.router, prefix="/api/v1/file-search", tags=["file-search"]
 )
 app.include_router(vtiger.router, prefix="/api/v1/vtiger", tags=["vtiger"])
+app.include_router(brain.router, prefix="/api/v1/brain", tags=["brain"])
 
 app.include_router(configs.router, prefix="/api/v1/configs", tags=["configs"])
 

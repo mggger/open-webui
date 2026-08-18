@@ -6,13 +6,23 @@ BUILD_HASH="${BUILD_HASH:-$(git rev-parse --short HEAD 2>/dev/null || date +%s)}
 IMAGE_TAG="${IMAGE_TAG:-archeround/open-webui:latest}"
 CONTAINER_NAME="${CONTAINER_NAME:-open-webui-archeround}"
 
+BUILD_OPTIONS=(--pull)
+if [[ "${NO_CACHE:-false}" == "true" ]]; then
+  BUILD_OPTIONS+=(--no-cache)
+fi
+
 # Build the image
 docker build \
+  "${BUILD_OPTIONS[@]}" \
   --build-arg BUILD_HASH="$BUILD_HASH" \
   --build-arg USE_CUDA=false \
   --build-arg USE_OLLAMA=false \
   --build-arg USE_PERMISSION_HARDENING=false \
   -t "$IMAGE_TAG" .
+
+# Do not replace the running container with an incomplete backend image.
+docker run --rm --entrypoint python3 "$IMAGE_TAG" -c \
+  "import uvicorn, livekit, mcp; print('Backend runtime dependencies verified')"
 
 # Stop and remove any existing container to enable zero-conf updates
 if docker ps -a --format '{{.Names}}' | grep -Eq "^${CONTAINER_NAME}$"; then

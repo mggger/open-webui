@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -121,6 +122,27 @@ async def entrypoint(ctx: JobContext) -> None:
         raise RuntimeError(
             "Brain currently requires an OpenAI-compatible TTS engine in Open WebUI Audio settings"
         )
+    session_tools = build_tools(config)
+    if value(config, "MCP_URL"):
+        try:
+            await asyncio.gather(*(toolset.setup() for toolset in session_tools))
+        except Exception as exc:
+            logger.exception("Brain MCP initialization failed")
+            raise RuntimeError(
+                f"Brain could not connect to the configured MCP server: {exc}"
+            ) from exc
+        available_tools = [
+            tool.id for toolset in session_tools for tool in toolset.tools
+        ]
+        if not available_tools:
+            raise RuntimeError(
+                "Brain connected to MCP, but no allowed tools were returned"
+            )
+        logger.info(
+            "Brain MCP ready with %d tools: %s",
+            len(available_tools),
+            ", ".join(available_tools),
+        )
     session = AgentSession(
         stt=openai.STT(
             model=value(config, "STT_MODEL", "whisper-1"),
@@ -141,8 +163,21 @@ async def entrypoint(ctx: JobContext) -> None:
             api_key=value(config, "TTS_API_KEY", "internal-no-key"),
             response_format="wav",
         ),
-        tools=build_tools(config),
+        tools=session_tools,
+        turn_handling={
+            "interruption": {
+                "enabled": False,
+                "discard_audio_if_uninterruptible": True,
+            }
+        },
     )
+
+    @session.on("agent_state_changed")
+    def _gate_microphone(event) -> None:
+        # Only Listening is an input state. Audio received while the agent
+        # is thinking or speaking must never reach VAD/STT or a later turn.
+        session.input.set_audio_enabled(event.new_state == "listening")
+
     await session.start(agent=BrainAgent(config), room=ctx.room)
 
 

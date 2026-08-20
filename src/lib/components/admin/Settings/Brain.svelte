@@ -7,69 +7,107 @@
 		getBrainSettings,
 		updateBrainSettings,
 		type BrainSettings,
+		type BrainMCPServerSettings,
 		type MCPToolInfo
 	} from '$lib/apis/brain';
 	import { models } from '$lib/stores';
 
 	let settings: BrainSettings | null = null;
 	let saving = false;
-	let mcpTools: MCPToolInfo[] = [];
-	let fetchingTools = false;
-	let mcpToolsError = '';
-	let fetchedMCPKey = '';
-	let fetchTimer: ReturnType<typeof setTimeout> | undefined;
+	let mcpTools: Record<string, MCPToolInfo[]> = {};
+	let fetchingTools: Record<string, boolean> = {};
+	let mcpToolsError: Record<string, string> = {};
+	let fetchedMCPKeys: Record<string, string> = {};
+	const fetchTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 
-	const selectedTools = () =>
+	const serverById = (id: string) => settings?.MCP_SERVERS.find((server) => server.ID === id);
+
+	const selectedTools = (id: string) =>
 		new Set(
-			(settings?.MCP_ALLOWED_TOOLS ?? '')
+			(serverById(id)?.ALLOWED_TOOLS ?? '')
 				.split(',')
 				.map((tool) => tool.trim())
 				.filter(Boolean)
 		);
 
-	const setSelectedTools = (tools: string[]) => {
-		if (settings) settings = { ...settings, MCP_ALLOWED_TOOLS: tools.join(',') };
+	const updateServer = (id: string, patch: Partial<BrainMCPServerSettings>) => {
+		if (!settings) return;
+		settings = {
+			...settings,
+			MCP_SERVERS: settings.MCP_SERVERS.map((server) =>
+				server.ID === id ? { ...server, ...patch } : server
+			)
+		};
 	};
 
-	const toggleTool = (name: string) => {
-		const selected = selectedTools();
+	const setSelectedTools = (id: string, tools: string[]) => {
+		updateServer(id, { ALLOWED_TOOLS: tools.join(',') });
+	};
+
+	const toggleTool = (id: string, name: string) => {
+		const selected = selectedTools(id);
 		if (selected.has(name)) selected.delete(name);
 		else selected.add(name);
-		setSelectedTools(mcpTools.map((tool) => tool.name).filter((name) => selected.has(name)));
+		setSelectedTools(
+			id,
+			(mcpTools[id] ?? []).map((tool) => tool.name).filter((tool) => selected.has(tool))
+		);
 	};
 
-	const fetchMCPTools = async () => {
-		if (!settings?.MCP_URL.trim()) {
-			mcpTools = [];
-			mcpToolsError = '';
-			fetchedMCPKey = '';
+	const fetchMCPTools = async (id: string) => {
+		const server = serverById(id);
+		if (!server?.URL.trim()) {
+			mcpTools = { ...mcpTools, [id]: [] };
+			mcpToolsError = { ...mcpToolsError, [id]: '' };
+			delete fetchedMCPKeys[id];
 			return;
 		}
-		const key = `${settings.MCP_URL.trim()}\n${settings.MCP_HEADERS}`;
-		fetchingTools = true;
-		mcpToolsError = '';
+		const key = `${server.URL.trim()}\n${server.HEADERS}`;
+		fetchingTools = { ...fetchingTools, [id]: true };
+		mcpToolsError = { ...mcpToolsError, [id]: '' };
 		try {
 			const tools = await getBrainMCPTools(
 				localStorage.token,
-				settings.MCP_URL.trim(),
-				settings.MCP_HEADERS
+				server.URL.trim(),
+				server.HEADERS
 			);
-			mcpTools = tools;
-			if (key !== fetchedMCPKey || !settings.MCP_ALLOWED_TOOLS.trim()) {
-				setSelectedTools(tools.map((tool) => tool.name));
+			mcpTools = { ...mcpTools, [id]: tools };
+			if (key !== fetchedMCPKeys[id] || !server.ALLOWED_TOOLS.trim()) {
+				setSelectedTools(id, tools.map((tool) => tool.name));
 			}
-			fetchedMCPKey = key;
+			fetchedMCPKeys = { ...fetchedMCPKeys, [id]: key };
 		} catch (error) {
-			mcpTools = [];
-			mcpToolsError = error instanceof Error ? error.message : 'Unable to fetch MCP tools';
+			mcpTools = { ...mcpTools, [id]: [] };
+			mcpToolsError = {
+				...mcpToolsError,
+				[id]: error instanceof Error ? error.message : 'Unable to fetch MCP tools'
+			};
 		} finally {
-			fetchingTools = false;
+			fetchingTools = { ...fetchingTools, [id]: false };
 		}
 	};
 
-	const scheduleMCPFetch = () => {
-		if (fetchTimer) clearTimeout(fetchTimer);
-		fetchTimer = setTimeout(fetchMCPTools, 600);
+	const scheduleMCPFetch = (id: string) => {
+		if (fetchTimers[id]) clearTimeout(fetchTimers[id]);
+		fetchTimers[id] = setTimeout(() => fetchMCPTools(id), 600);
+	};
+
+	const addMCPServer = () => {
+		if (!settings) return;
+		const id = crypto.randomUUID();
+		settings = {
+			...settings,
+			MCP_SERVERS: [
+				...settings.MCP_SERVERS,
+				{ ID: id, NAME: `MCP Server ${settings.MCP_SERVERS.length + 1}`, URL: '', ALLOWED_TOOLS: '', HEADERS: '{}' }
+			]
+		};
+	};
+
+	const removeMCPServer = (id: string) => {
+		if (!settings) return;
+		if (fetchTimers[id]) clearTimeout(fetchTimers[id]);
+		settings = { ...settings, MCP_SERVERS: settings.MCP_SERVERS.filter((server) => server.ID !== id) };
 	};
 
 	const save = async () => {
@@ -90,11 +128,12 @@
 			toast.error(error.message);
 			return null;
 		});
-		if (settings?.MCP_URL.trim()) {
-			if (settings.MCP_ALLOWED_TOOLS.trim()) {
-				fetchedMCPKey = `${settings.MCP_URL.trim()}\n${settings.MCP_HEADERS}`;
+		for (const server of settings?.MCP_SERVERS ?? []) {
+			if (!server.URL.trim()) continue;
+			if (server.ALLOWED_TOOLS.trim()) {
+				fetchedMCPKeys[server.ID] = `${server.URL.trim()}\n${server.HEADERS}`;
 			}
-			await fetchMCPTools();
+			await fetchMCPTools(server.ID);
 		}
 	});
 
@@ -183,59 +222,58 @@
 			</div>
 
 			<div>
-				<div class="mb-2.5 text-base font-medium">MCP capabilities</div>
+				<div class="mb-2.5 flex items-center justify-between">
+					<div class="text-base font-medium">MCP capabilities</div>
+					<button type="button" class="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900" on:click={addMCPServer}>Add MCP server</button>
+				</div>
 				<hr class="my-3 border-gray-100/30 dark:border-gray-850/30" />
 				<div class="space-y-4">
-					<label class="block"
-						><span class="label">Streamable HTTP URL</span><input
-							class="field"
-							bind:value={settings.MCP_URL}
-							on:input={scheduleMCPFetch}
-							placeholder="http://mcp.internal/mcp"
-						/></label
-					>
-					<label class="block"
-						><span class="label">Headers JSON</span><textarea
-							class="field min-h-20 resize-y font-mono text-xs"
-							bind:value={settings.MCP_HEADERS}
-							on:input={scheduleMCPFetch}
-							spellcheck="false"
-							placeholder={'{"Authorization":"Bearer ..."}'}
-						></textarea></label
-					>
-					<div class="rounded-xl border border-gray-200/70 dark:border-gray-800">
-						<div class="flex items-center justify-between border-b border-gray-200/70 px-3 py-2.5 dark:border-gray-800">
-							<div>
-								<div class="text-xs font-medium">Available tools</div>
-								<div class="mt-0.5 text-[11px] text-gray-500">
-									{fetchingTools ? 'Fetching tools…' : `${selectedTools().size} of ${mcpTools.length} selected`}
-								</div>
+					{#if settings.MCP_SERVERS.length === 0}
+						<div class="rounded-xl border border-dashed border-gray-300 px-4 py-6 text-center text-xs text-gray-500 dark:border-gray-700">
+							No MCP servers configured. Add one to give Brain access to internal tools.
+						</div>
+					{/if}
+					{#each settings.MCP_SERVERS as server, index (server.ID)}
+						<div class="space-y-4 rounded-2xl border border-gray-200/70 p-4 dark:border-gray-800">
+							<div class="flex items-center justify-between gap-3">
+								<div class="text-sm font-medium">{server.NAME || `MCP Server ${index + 1}`}</div>
+								<button type="button" class="text-xs text-red-500 hover:underline" on:click={() => removeMCPServer(server.ID)}>Remove</button>
 							</div>
-							<div class="flex gap-3 text-xs">
-								<button type="button" class="underline underline-offset-4" on:click={() => setSelectedTools(mcpTools.map((tool) => tool.name))}>Select all</button>
-								<button type="button" class="underline underline-offset-4" on:click={fetchMCPTools}>Refresh</button>
+							<div class="grid gap-4 md:grid-cols-2">
+								<label class="block"><span class="label">Name</span><input class="field" bind:value={server.NAME} placeholder={`MCP Server ${index + 1}`} /></label>
+								<label class="block"><span class="label">Streamable HTTP URL</span><input class="field" bind:value={server.URL} on:input={() => scheduleMCPFetch(server.ID)} placeholder="http://mcp.internal/mcp" /></label>
+							</div>
+							<label class="block"><span class="label">Headers JSON</span><textarea class="field min-h-20 resize-y font-mono text-xs" bind:value={server.HEADERS} on:input={() => scheduleMCPFetch(server.ID)} spellcheck="false" placeholder={'{"Authorization":"Bearer ..."}'}></textarea></label>
+							<div class="rounded-xl border border-gray-200/70 dark:border-gray-800">
+								<div class="flex items-center justify-between border-b border-gray-200/70 px-3 py-2.5 dark:border-gray-800">
+									<div>
+										<div class="text-xs font-medium">Available tools</div>
+										<div class="mt-0.5 text-[11px] text-gray-500">{fetchingTools[server.ID] ? 'Fetching tools…' : `${selectedTools(server.ID).size} of ${(mcpTools[server.ID] ?? []).length} selected`}</div>
+									</div>
+									<div class="flex gap-3 text-xs">
+										<button type="button" class="underline underline-offset-4" on:click={() => setSelectedTools(server.ID, (mcpTools[server.ID] ?? []).map((tool) => tool.name))}>Select all</button>
+										<button type="button" class="underline underline-offset-4" on:click={() => fetchMCPTools(server.ID)}>Refresh</button>
+									</div>
+								</div>
+								{#if mcpToolsError[server.ID]}
+									<div class="px-3 py-3 text-xs text-red-600 dark:text-red-400">{mcpToolsError[server.ID]}</div>
+								{:else if !server.URL.trim()}
+									<div class="px-3 py-3 text-xs text-gray-500">Enter an MCP URL to discover its tools automatically.</div>
+								{:else if !fetchingTools[server.ID] && (mcpTools[server.ID] ?? []).length === 0}
+									<div class="px-3 py-3 text-xs text-gray-500">No tools were returned by this server.</div>
+								{:else}
+									<div class="max-h-72 divide-y divide-gray-200/70 overflow-y-auto dark:divide-gray-800">
+										{#each mcpTools[server.ID] ?? [] as tool}
+											<label class="flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-900/50">
+												<input type="checkbox" class="mt-0.5" checked={selectedTools(server.ID).has(tool.name)} on:change={() => toggleTool(server.ID, tool.name)} />
+												<span class="min-w-0"><span class="block text-xs font-medium">{tool.name}</span>{#if tool.description}<span class="mt-0.5 block text-[11px] leading-4 text-gray-500">{tool.description}</span>{/if}</span>
+											</label>
+										{/each}
+									</div>
+								{/if}
 							</div>
 						</div>
-						{#if mcpToolsError}
-							<div class="px-3 py-3 text-xs text-red-600 dark:text-red-400">{mcpToolsError}</div>
-						{:else if !settings.MCP_URL.trim()}
-							<div class="px-3 py-3 text-xs text-gray-500">Enter an MCP URL to discover its tools automatically.</div>
-						{:else if !fetchingTools && mcpTools.length === 0}
-							<div class="px-3 py-3 text-xs text-gray-500">No tools were returned by this server.</div>
-						{:else}
-							<div class="max-h-72 divide-y divide-gray-200/70 overflow-y-auto dark:divide-gray-800">
-								{#each mcpTools as tool}
-									<label class="flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-900/50">
-										<input type="checkbox" class="mt-0.5" checked={selectedTools().has(tool.name)} on:change={() => toggleTool(tool.name)} />
-										<span class="min-w-0">
-											<span class="block text-xs font-medium">{tool.name}</span>
-											{#if tool.description}<span class="mt-0.5 block text-[11px] leading-4 text-gray-500">{tool.description}</span>{/if}
-										</span>
-									</label>
-								{/each}
-							</div>
-						{/if}
-					</div>
+					{/each}
 					<label class="block"
 						><span class="label">Brain system instructions</span><textarea
 							class="field min-h-28 resize-y"

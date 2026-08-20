@@ -601,6 +601,32 @@
 			</div>
 
 			<div class="-mt-[0.5px]">
+				<div>
+					<Tooltip content="Brain" placement="right">
+						<a
+							class="cursor-pointer flex rounded-xl hover:bg-gray-100 dark:hover:bg-gray-850 transition"
+							href="/brain"
+							on:click={itemClickHandler}
+							aria-label="Brain"
+						>
+							<div class="self-center flex items-center justify-center size-9 text-indigo-500">
+								<svg
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="1.7"
+									class="size-4.5"
+									><path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										d="M9.5 4.5A3.5 3.5 0 0 0 6 8v1a3 3 0 0 0 0 6v1a3.5 3.5 0 0 0 6 2.45A3.5 3.5 0 0 0 18 16v-1a3 3 0 0 0 0-6V8a3.5 3.5 0 0 0-6-2.45A3.5 3.5 0 0 0 9.5 4.5ZM12 5.5v13M8.5 9.5H12m0 5h3.5"
+									/></svg
+								>
+							</div>
+						</a>
+					</Tooltip>
+				</div>
+
 				<div class="">
 					<Tooltip content={$i18n.t('New Chat')} placement="right">
 						<a
@@ -640,32 +666,6 @@
 								<Search className="size-4.5" />
 							</div>
 						</button>
-					</Tooltip>
-				</div>
-
-				<div>
-					<Tooltip content="Brain" placement="right">
-						<a
-							class="cursor-pointer flex rounded-xl hover:bg-gray-100 dark:hover:bg-gray-850 transition"
-							href="/brain"
-							on:click={itemClickHandler}
-							aria-label="Brain"
-						>
-							<div class="self-center flex items-center justify-center size-9 text-indigo-500">
-								<svg
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="1.7"
-									class="size-4.5"
-									><path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										d="M9.5 4.5A3.5 3.5 0 0 0 6 8v1a3 3 0 0 0 0 6v1a3.5 3.5 0 0 0 6 2.45A3.5 3.5 0 0 0 18 16v-1a3 3 0 0 0 0-6V8a3.5 3.5 0 0 0-6-2.45A3.5 3.5 0 0 0 9.5 4.5ZM12 5.5v13M8.5 9.5H12m0 5h3.5"
-									/></svg
-								>
-							</div>
-						</a>
 					</Tooltip>
 				</div>
 
@@ -923,6 +923,33 @@
 				<div class="pb-1.5">
 					<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
 						<a
+							class="grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition"
+							href="/brain"
+							on:click={itemClickHandler}
+							aria-label="Brain"
+						>
+							<div class="self-center text-indigo-500">
+								<svg
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="1.7"
+									class="size-4.5"
+									><path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										d="M9.5 4.5A3.5 3.5 0 0 0 6 8v1a3 3 0 0 0 0 6v1a3.5 3.5 0 0 0 6 2.45A3.5 3.5 0 0 0 18 16v-1a3 3 0 0 0 0-6V8a3.5 3.5 0 0 0-6-2.45A3.5 3.5 0 0 0 9.5 4.5ZM12 5.5v13M8.5 9.5H12m0 5h3.5"
+									/></svg
+								>
+							</div>
+							<div class="flex self-center translate-y-[0.5px]">
+								<div class="self-center text-sm font-primary">Brain</div>
+							</div>
+						</a>
+					</div>
+
+					<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
+						<a
 							id="sidebar-new-chat-button"
 							class="group grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none"
 							href="/"
@@ -961,33 +988,6 @@
 							</div>
 							<HotkeyHint name="search" className=" group-hover:visible invisible" />
 						</button>
-					</div>
-
-					<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
-						<a
-							class="grow flex items-center space-x-3 rounded-2xl px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition"
-							href="/brain"
-							on:click={itemClickHandler}
-							aria-label="Brain"
-						>
-							<div class="self-center text-indigo-500">
-								<svg
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="1.7"
-									class="size-4.5"
-									><path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										d="M9.5 4.5A3.5 3.5 0 0 0 6 8v1a3 3 0 0 0 0 6v1a3.5 3.5 0 0 0 6 2.45A3.5 3.5 0 0 0 18 16v-1a3 3 0 0 0 0-6V8a3.5 3.5 0 0 0-6-2.45A3.5 3.5 0 0 0 9.5 4.5ZM12 5.5v13M8.5 9.5H12m0 5h3.5"
-									/></svg
-								>
-							</div>
-							<div class="flex self-center translate-y-[0.5px]">
-								<div class="self-center text-sm font-primary">Brain</div>
-							</div>
-						</a>
 					</div>
 
 					{#if ($config?.features?.enable_notes ?? false) && ($user?.role === 'admin' || ($user?.permissions?.features?.notes ?? true))}

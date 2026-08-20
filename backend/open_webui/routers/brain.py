@@ -5,7 +5,7 @@ import uuid
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from open_webui.config import get_config, save_config
 from open_webui.utils.auth import get_admin_user, get_verified_user
@@ -27,6 +27,14 @@ class BrainSessionResponse(BaseModel):
     expires_at: int
 
 
+class BrainMCPServerSettings(BaseModel):
+    ID: str = ""
+    NAME: str = "MCP Server"
+    URL: str = ""
+    ALLOWED_TOOLS: str = ""
+    HEADERS: str = "{}"
+
+
 class BrainSettings(BaseModel):
     NAME: str = "Brain"
     LIVEKIT_URL: str = "ws://localhost:7880"
@@ -37,6 +45,7 @@ class BrainSettings(BaseModel):
     MCP_URL: str = ""
     MCP_ALLOWED_TOOLS: str = ""
     MCP_HEADERS: str = "{}"
+    MCP_SERVERS: list[BrainMCPServerSettings] = Field(default_factory=list)
     INSTRUCTIONS: str = ""
 
 
@@ -129,7 +138,18 @@ def current_settings() -> BrainSettings:
         LIVEKIT_API_KEY=os.getenv("LIVEKIT_API_KEY", ""),
         LIVEKIT_API_SECRET=os.getenv("LIVEKIT_API_SECRET", ""),
     )
-    return BrainSettings(**{**defaults.model_dump(), **stored})
+    merged = {**defaults.model_dump(), **stored}
+    if not merged.get("MCP_SERVERS") and merged.get("MCP_URL"):
+        merged["MCP_SERVERS"] = [
+            {
+                "ID": "legacy_mcp",
+                "NAME": "Internal MCP",
+                "URL": merged.get("MCP_URL", ""),
+                "ALLOWED_TOOLS": merged.get("MCP_ALLOWED_TOOLS", ""),
+                "HEADERS": merged.get("MCP_HEADERS", "{}"),
+            }
+        ]
+    return BrainSettings(**merged)
 
 
 @router.get("/config")
@@ -204,6 +224,35 @@ async def get_mcp_tools(form_data: MCPToolsRequest, user=Depends(get_admin_user)
 async def update_brain_settings(
     request: Request, form_data: BrainSettings, user=Depends(get_admin_user)
 ):
+    seen_ids: set[str] = set()
+    for index, server in enumerate(form_data.MCP_SERVERS):
+        server.ID = server.ID.strip() or f"mcp_{uuid.uuid4().hex}"
+        if server.ID in seen_ids:
+            server.ID = f"mcp_{uuid.uuid4().hex}"
+        seen_ids.add(server.ID)
+        server.NAME = server.NAME.strip() or f"MCP Server {index + 1}"
+        server.URL = server.URL.strip()
+        try:
+            headers = json.loads(server.HEADERS or "{}")
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid headers JSON for {server.NAME}: {exc.msg}",
+            ) from exc
+        if not isinstance(headers, dict) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in headers.items()
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Headers for {server.NAME} must be a JSON object of string values",
+            )
+
+    # Keep legacy fields synchronized for rolling upgrades, while the runtime uses MCP_SERVERS.
+    first_server = form_data.MCP_SERVERS[0] if form_data.MCP_SERVERS else None
+    form_data.MCP_URL = first_server.URL if first_server else ""
+    form_data.MCP_ALLOWED_TOOLS = first_server.ALLOWED_TOOLS if first_server else ""
+    form_data.MCP_HEADERS = first_server.HEADERS if first_server else "{}"
     config = get_config()
     config["brain"] = form_data.model_dump()
     if not save_config(config):

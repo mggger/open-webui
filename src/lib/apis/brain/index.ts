@@ -8,6 +8,14 @@ export type BrainSession = {
 	expires_at: number;
 };
 
+export type BrainMCPServerSettings = {
+	ID: string;
+	NAME: string;
+	URL: string;
+	ALLOWED_TOOLS: string;
+	HEADERS: string;
+};
+
 export type BrainSettings = {
 	NAME: string;
 	LIVEKIT_URL: string;
@@ -18,6 +26,7 @@ export type BrainSettings = {
 	MCP_URL: string;
 	MCP_ALLOWED_TOOLS: string;
 	MCP_HEADERS: string;
+	MCP_SERVERS: BrainMCPServerSettings[];
 	INSTRUCTIONS: string;
 };
 

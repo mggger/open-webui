@@ -92,25 +92,39 @@ class EmbeddedBrainAgent:
                 )
 
         def tools(config: dict[str, Any]):
-            if not config.get("MCP_URL"):
-                return []
-            allowed = [
-                item.strip()
-                for item in str(config.get("MCP_ALLOWED_TOOLS", "")).split(",")
-                if item.strip()
-            ]
-            return [
-                mcp.MCPToolset(
-                    id="internal_mcp",
-                    mcp_server=mcp.MCPServerHTTP(
-                        url=config["MCP_URL"],
-                        transport_type="streamable_http",
-                        allowed_tools=allowed or None,
-                        headers=json.loads(config.get("MCP_HEADERS") or "{}"),
-                    ),
-                    tool_options={},
+            servers = list(config.get("MCP_SERVERS") or [])
+            if not servers and config.get("MCP_URL"):
+                servers = [
+                    {
+                        "ID": "legacy_mcp",
+                        "URL": config["MCP_URL"],
+                        "ALLOWED_TOOLS": config.get("MCP_ALLOWED_TOOLS", ""),
+                        "HEADERS": config.get("MCP_HEADERS", "{}"),
+                    }
+                ]
+            toolsets = []
+            for index, server_config in enumerate(servers):
+                url = str(server_config.get("URL", "")).strip()
+                if not url:
+                    continue
+                allowed = [
+                    item.strip()
+                    for item in str(server_config.get("ALLOWED_TOOLS", "")).split(",")
+                    if item.strip()
+                ]
+                toolsets.append(
+                    mcp.MCPToolset(
+                        id=str(server_config.get("ID") or f"mcp_{index}"),
+                        mcp_server=mcp.MCPServerHTTP(
+                            url=url,
+                            transport_type="streamable_http",
+                            allowed_tools=allowed or None,
+                            headers=json.loads(server_config.get("HEADERS") or "{}"),
+                        ),
+                        tool_options={},
+                    )
                 )
-            ]
+            return toolsets
 
         self.server = AgentServer(
             ws_url=settings.LIVEKIT_URL,
@@ -127,7 +141,7 @@ class EmbeddedBrainAgent:
             if config["STT_ENGINE"] != "openai" or config["TTS_ENGINE"] != "openai":
                 raise RuntimeError("Brain requires OpenAI-compatible STT and TTS")
             session_tools = tools(config)
-            if config.get("MCP_URL"):
+            if session_tools:
                 try:
                     await asyncio.gather(
                         *(toolset.setup() for toolset in session_tools)
@@ -143,6 +157,14 @@ class EmbeddedBrainAgent:
                 if not available_tools:
                     raise RuntimeError(
                         "Brain connected to MCP, but no allowed tools were returned"
+                    )
+                duplicate_tools = {
+                    name for name in available_tools if available_tools.count(name) > 1
+                }
+                if duplicate_tools:
+                    raise RuntimeError(
+                        "Multiple MCP servers expose duplicate tool names: "
+                        + ", ".join(sorted(duplicate_tools))
                     )
                 log.info(
                     "Brain MCP ready with %d tools: %s",

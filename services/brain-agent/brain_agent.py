@@ -54,13 +54,18 @@ def required_value(config: dict[str, object], name: str) -> str:
 
 
 def build_tools(config: dict[str, object]) -> list[mcp.MCPToolset]:
-    url = value(config, "MCP_URL")
-    if not url:
-        return []
-
-    allowed = [item.strip() for item in value(config, "MCP_ALLOWED_TOOLS").split(",")]
-    allowed = [item for item in allowed if item]
-    headers = json.loads(value(config, "MCP_HEADERS", "{}"))
+    servers = config.get("MCP_SERVERS")
+    if not isinstance(servers, list):
+        servers = []
+    if not servers and value(config, "MCP_URL"):
+        servers = [
+            {
+                "ID": "legacy_mcp",
+                "URL": value(config, "MCP_URL"),
+                "ALLOWED_TOOLS": value(config, "MCP_ALLOWED_TOOLS"),
+                "HEADERS": value(config, "MCP_HEADERS", "{}"),
+            }
+        ]
     cancellable = [
         item.strip() for item in os.getenv("BRAIN_MCP_CANCELLABLE_TOOLS", "").split(",")
     ]
@@ -69,21 +74,34 @@ def build_tools(config: dict[str, object]) -> list[mcp.MCPToolset]:
         for name in cancellable
         if name
     }
-    return [
-        mcp.MCPToolset(
-            id="internal_mcp",
-            mcp_server=mcp.MCPServerHTTP(
-                url=url,
-                transport_type="streamable_http",
-                allowed_tools=allowed or None,
-                headers=headers,
-                client_session_timeout_seconds=float(
-                    os.getenv("BRAIN_MCP_TIMEOUT_SECONDS", "120")
+    toolsets = []
+    for index, server_config in enumerate(servers):
+        if not isinstance(server_config, dict):
+            continue
+        url = str(server_config.get("URL", "")).strip()
+        if not url:
+            continue
+        allowed = [
+            item.strip()
+            for item in str(server_config.get("ALLOWED_TOOLS", "")).split(",")
+            if item.strip()
+        ]
+        toolsets.append(
+            mcp.MCPToolset(
+                id=str(server_config.get("ID") or f"mcp_{index}"),
+                mcp_server=mcp.MCPServerHTTP(
+                    url=url,
+                    transport_type="streamable_http",
+                    allowed_tools=allowed or None,
+                    headers=json.loads(server_config.get("HEADERS") or "{}"),
+                    client_session_timeout_seconds=float(
+                        os.getenv("BRAIN_MCP_TIMEOUT_SECONDS", "120")
+                    ),
                 ),
-            ),
-            tool_options=tool_options,
+                tool_options=tool_options,
+            )
         )
-    ]
+    return toolsets
 
 
 class BrainAgent(Agent):
@@ -123,7 +141,7 @@ async def entrypoint(ctx: JobContext) -> None:
             "Brain currently requires an OpenAI-compatible TTS engine in Open WebUI Audio settings"
         )
     session_tools = build_tools(config)
-    if value(config, "MCP_URL"):
+    if session_tools:
         try:
             await asyncio.gather(*(toolset.setup() for toolset in session_tools))
         except Exception as exc:
@@ -137,6 +155,14 @@ async def entrypoint(ctx: JobContext) -> None:
         if not available_tools:
             raise RuntimeError(
                 "Brain connected to MCP, but no allowed tools were returned"
+            )
+        duplicate_tools = {
+            name for name in available_tools if available_tools.count(name) > 1
+        }
+        if duplicate_tools:
+            raise RuntimeError(
+                "Multiple MCP servers expose duplicate tool names: "
+                + ", ".join(sorted(duplicate_tools))
             )
         logger.info(
             "Brain MCP ready with %d tools: %s",

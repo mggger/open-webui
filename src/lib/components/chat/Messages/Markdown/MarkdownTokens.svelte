@@ -478,7 +478,7 @@
 		{/if}
 	{:else if token.type === 'detail_group'}
 		<div
-			data-export-ignore={(token.items ?? []).every((item) => item?.attributes?.type === 'reasoning')
+			data-export-ignore={(token.items ?? []).every((item: any) => item?.attributes?.type === 'reasoning')
 				? 'true'
 				: undefined}
 		>

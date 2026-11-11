@@ -565,6 +565,8 @@
 							</button>
 						</Tooltip>
 					{/if}
+				</div>
+			{/if}
 
 			{#if $user}
 				<div
@@ -614,6 +616,8 @@
 							</button>
 						</Tooltip>
 					{/if}
+				</div>
+			{/if}
 
 			{#if $user?.role === 'admin'}
 				<div
@@ -663,6 +667,8 @@
 							</button>
 						</Tooltip>
 					{/if}
+				</div>
+			{/if}
 
 			{#if help}
 				<hr class="border-gray-50/30 dark:border-gray-800/30 my-0.5 mx-1 p-0" />

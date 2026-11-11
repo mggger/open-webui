@@ -658,7 +658,7 @@
 		try {
 			await tick();
 			if (!contentElement) {
-				throw new Error('Missing content element');
+				throw new globalThis.Error('Missing content element');
 			}
 
 			let wrapper: HTMLDivElement | null = null;

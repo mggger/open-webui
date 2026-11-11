@@ -3780,7 +3780,7 @@
 
 		// Command automation: a "!command" prompt can swap in a configured prompt,
 		// add a system prompt and switch the request into tools / web search / deep research mode.
-		let systemPromptOverride = null;
+		let systemPromptOverride: string | null = null;
 		const commandAutomationConfig = $settings?.commandAutomation;
 		const commandAutomationRules = Array.isArray(commandAutomationConfig)
 			? commandAutomationConfig
@@ -4506,11 +4506,11 @@
 	};
 
 	const sendDeepSearch = async (
-		model,
-		_history,
-		responseMessageId,
-		_chatId,
-		systemPromptOverride = null
+		model: any,
+		_history: any,
+		responseMessageId: string,
+		_chatId: string,
+		systemPromptOverride: string | null = null
 	) => {
 		const responseMessage = _history.messages[responseMessageId];
 		const userMessage = _history.messages[responseMessage.parentId];
@@ -4563,7 +4563,7 @@
 					done: true
 				}
 			];
-		} catch (error) {
+		} catch (error: any) {
 			let errorMessage = error;
 			if (error?.error?.message) {
 				errorMessage = error.error.message;

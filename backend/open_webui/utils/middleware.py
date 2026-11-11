@@ -170,6 +170,7 @@ from open_webui.utils.tool_calling import (
     split_tool_calls,
     tool_repetition_error,
 )
+from open_webui.utils.file_search import chat_file_search_handler
 from open_webui.utils.tool_search import apply_tool_search, resolve_tool_call, split_tool_call_batches
 from open_webui.utils.tools import (
     connect_mcp_server,
@@ -2210,6 +2211,12 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             )  # Required to handle system prompt variables
         except Exception:
             pass
+    else:
+        # Always inject current date/time so the model has accurate temporal context
+        try:
+            form_data = await apply_system_prompt_to_body(None, form_data, metadata, user)
+        except Exception:
+            pass
 
     form_data = await convert_url_images_to_base64(form_data, user=user)
 
@@ -2421,6 +2428,17 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                         form_data['messages'],
                         append=True,
                     )
+
+    file_search = form_data.pop('file_search', None)
+    if isinstance(file_search, dict) and file_search.get('enabled'):
+        form_data, file_search_sources = await chat_file_search_handler(
+            request,
+            form_data,
+            extra_params,
+            user,
+            file_search,
+        )
+        sources.extend(file_search_sources)
 
     form_data['messages'] = set_tool_approval_prompt(form_data['messages'])
     tool_ids = form_data.pop('tool_ids', None)
@@ -2938,7 +2956,41 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
     # If context is not empty, insert it into the messages
     if sources and prompt:
-        form_data['messages'] = await apply_source_context_to_messages(request, form_data['messages'], sources, prompt)
+        # Tool outputs that were executed on the user's behalf are relayed as
+        # <tool_result> blocks instead of being mixed into the RAG <source> context.
+        tool_result_sources = [source for source in sources if source.get('tool_result')]
+        context_sources = [source for source in sources if not source.get('tool_result')]
+        form_data['messages'] = await apply_source_context_to_messages(
+            request, form_data['messages'], context_sources, prompt
+        )
+
+        tool_context_string = ''
+        for source in tool_result_sources:
+            source_name = source.get('source', {}).get('name', None)
+            for document_text in source.get('document', []):
+                tool_context_string += (
+                    '<tool_result'
+                    + (f' name="{source_name}"' if source_name else '')
+                    + f'>{document_text}</tool_result>\n'
+                )
+        tool_context_string = tool_context_string.strip()
+        if tool_context_string:
+            form_data['messages'] = add_or_update_user_message(
+                "\n\nThe following tools were already executed on the user's behalf "
+                "for this request. Their raw outputs are below — answer the user's "
+                'request by relaying these results faithfully:\n'
+                f'{tool_context_string}',
+                form_data['messages'],
+            )
+
+        if tool_context_string != "":
+            form_data["messages"] = add_or_update_user_message(
+                "\n\nThe following tools were already executed on the user's behalf "
+                "for this request. Their raw outputs are below — answer the user's "
+                "request by relaying these results faithfully:\n"
+                f"{tool_context_string}",
+                form_data["messages"],
+            )
 
     # If there are citations, add them to the data_items
     sources = [

@@ -19,7 +19,7 @@ dependencies = [
     "qrcode==8.2",
     "bcrypt==5.0.0",
     "argon2-cffi==25.1.0",
-    "PyJWT[crypto]==2.13.0",
+    "PyJWT[crypto]==2.15.1",
     "authlib==1.7.2",
     "joserfc==1.7.4",
 
@@ -55,8 +55,11 @@ dependencies = [
     "regex==2026.5.9",
     "google-re2==1.1.20251105",
     "mcp==2.3.0",
+    "livekit-api>=1.0.7",
+    "livekit-agents[mcp]==1.8.11",
+    "livekit-plugins-openai==1.8.11",
 
-    "openai==2.29.0",
+    "openai==3.49.0",
     "anthropic==0.86.0",
 
     "langchain-core==1.4.8",
@@ -87,6 +90,7 @@ dependencies = [
     "lxml==6.1.1",
     "pypandoc==1.17",
     "pandas==3.0.3",
+    "smbprotocol>=1.15,<2",
     "openpyxl==3.1.5",
     "pyxlsb==1.0.10",
     "xlrd==2.0.2",
@@ -109,6 +113,7 @@ dependencies = [
 
     "pydub==0.25.1",
     "ddgs==9.14.4",
+    "tavily-python==0.7.20",
 
     "googleapis-common-protos==1.75.0",
     "google-cloud-storage==3.9.0",

@@ -1227,6 +1227,19 @@ OPENSERP_BASE_URL = os.getenv('OPENSERP_BASE_URL', 'http://localhost:7000')
 
 SEARXNG_LANGUAGE = os.getenv('SEARXNG_LANGUAGE', 'all')
 
+# Vtiger CRM
+
+ENABLE_VTIGER_CRM = os.getenv('ENABLE_VTIGER_CRM', 'True').lower() == 'true'
+VTIGER_BASE_URL = os.getenv('VTIGER_BASE_URL', '')
+VTIGER_USERNAME = os.getenv('VTIGER_USERNAME', '')
+VTIGER_ACCESS_KEY = os.getenv('VTIGER_ACCESS_KEY', '')
+VTIGER_VERIFY_SSL = os.getenv('VTIGER_VERIFY_SSL', 'True').lower() == 'true'
+
+# Deep Search
+
+ENABLE_DEEP_SEARCH = os.getenv('ENABLE_DEEP_SEARCH', 'False').lower() == 'true'
+DEEP_SEARCH_MAX_ITERATIONS = int(os.getenv('DEEP_SEARCH_MAX_ITERATIONS', '3'))
+
 YACY_QUERY_URL = os.getenv('YACY_QUERY_URL', '')
 
 YACY_USERNAME = os.getenv('YACY_USERNAME', '')
@@ -1322,7 +1335,7 @@ PLAYWRIGHT_WS_URL = os.getenv('PLAYWRIGHT_WS_URL', '')
 
 PLAYWRIGHT_TIMEOUT = int(os.getenv('PLAYWRIGHT_TIMEOUT', '10000'))
 
-FIRECRAWL_API_KEY = os.getenv('FIRECRAWL_API_KEY', '')
+FIRECRAWL_API_KEY = os.getenv('FIRECRAWL_API_KEY', os.getenv('FIRECRAWL_KEY', ''))
 
 FIRECRAWL_API_BASE_URL = os.getenv('FIRECRAWL_API_BASE_URL', 'https://api.firecrawl.dev')
 
@@ -1677,6 +1690,8 @@ AUDIO_TTS_AZURE_SPEECH_OUTPUT_FORMAT = os.getenv(
 AUDIO_TTS_MISTRAL_API_KEY = os.getenv('AUDIO_TTS_MISTRAL_API_KEY', '')
 
 AUDIO_TTS_MISTRAL_API_BASE_URL = os.getenv('AUDIO_TTS_MISTRAL_API_BASE_URL', 'https://api.mistral.ai/v1')
+
+AUDIO_TTS_MOSS_API_BASE_URL = os.getenv('AUDIO_TTS_MOSS_API_BASE_URL', 'http://localhost:8000')
 
 # WebUI
 
@@ -3103,6 +3118,13 @@ DEFAULT_CONFIG = {
     'web.loader.timeout': WEB_LOADER_TIMEOUT,
     'web.loader.ssl_verification': ENABLE_WEB_LOADER_SSL_VERIFICATION,
     'web.search.trust_env': WEB_SEARCH_TRUST_ENV,
+    'vtiger.enable': ENABLE_VTIGER_CRM,
+    'vtiger.base_url': VTIGER_BASE_URL,
+    'vtiger.username': VTIGER_USERNAME,
+    'vtiger.access_key': VTIGER_ACCESS_KEY,
+    'vtiger.verify_ssl': VTIGER_VERIFY_SSL,
+    'deep_search.enable': ENABLE_DEEP_SEARCH,
+    'deep_search.max_iterations': DEEP_SEARCH_MAX_ITERATIONS,
     'web.search.ollama_cloud_api_key': OLLAMA_CLOUD_WEB_SEARCH_API_KEY,
     'web.search.searxng_query_url': SEARXNG_QUERY_URL,
     'web.search.openserp_base_url': OPENSERP_BASE_URL,
@@ -3239,6 +3261,7 @@ DEFAULT_CONFIG = {
     'audio.tts.azure.speech_region': AUDIO_TTS_AZURE_SPEECH_REGION,
     'audio.tts.azure.speech_base_url': AUDIO_TTS_AZURE_SPEECH_BASE_URL,
     'audio.tts.azure.speech_output_format': AUDIO_TTS_AZURE_SPEECH_OUTPUT_FORMAT,
+    'audio.tts.moss.api_base_url': AUDIO_TTS_MOSS_API_BASE_URL,
     'audio.tts.mistral.api_key': AUDIO_TTS_MISTRAL_API_KEY,
     'audio.tts.mistral.api_base_url': AUDIO_TTS_MISTRAL_API_BASE_URL,
     'webui.url': WEBUI_URL,

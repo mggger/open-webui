@@ -154,12 +154,17 @@ from open_webui.routers import (
     audio,
     auths,
     automations,
+    big_events,
+    brain,
     calendar,
     channels,
     chats,
     comments,
     configs,
+    conversation_agents,
+    deep_search,
     evaluations,
+    file_search,
     files,
     folders,
     functions,
@@ -184,6 +189,7 @@ from open_webui.routers import (
     tools,
     users,
     utils,
+    vtiger,
 )
 from open_webui.routers.retrieval import (
     get_ef,
@@ -260,7 +266,8 @@ from open_webui.utils.middleware import (
     process_chat_response,
     publish_chat_failed_event,
 )
-from open_webui.utils.misc import get_response_error_detail, merge_model_params
+from open_webui.utils.misc import get_last_user_message, get_response_error_detail, merge_model_params
+from open_webui.utils.big_events import DISCOVERY_ENABLED, big_events_discovery_loop
 from open_webui.utils.model_ids import strip_provider_model_prefix
 from open_webui.utils.models import (
     check_model_access,
@@ -316,8 +323,9 @@ class SPAStaticFiles(StaticFiles):
             return await super().get_response(path, scope)
         except (HTTPException, StarletteHTTPException) as ex:
             if ex.status_code == 404:
-                if path.endswith('.js'):
-                    # Return 404 for javascript files
+                # Only SPA routes (without a file extension) should fall back to index.html.
+                # Static assets must keep 404 to avoid returning HTML with the wrong MIME type.
+                if os.path.splitext(path)[1]:
                     raise ex
                 else:
                     return await super().get_response('index.html', scope)
@@ -389,6 +397,11 @@ async def lifespan(app: FastAPI):
 
     await import_legacy_config_json()
     await seed_registered_defaults()
+
+    from open_webui.utils.brain_agent import EmbeddedBrainAgent
+
+    app.state.brain_agent = EmbeddedBrainAgent(app)
+    await app.state.brain_agent.start()
     await app.state.oauth_manager.initialize()
     from open_webui.utils.mfa import validate_mfa_configuration
 
@@ -449,6 +462,9 @@ async def lifespan(app: FastAPI):
     from open_webui.utils.automations import scheduler_worker_loop
 
     app.state.scheduler_worker_loop = asyncio.create_task(scheduler_worker_loop(app))
+
+    if DISCOVERY_ENABLED:
+        app.state.big_events_discovery_task = asyncio.create_task(big_events_discovery_loop(app))
 
     if await Config.get('models.base_models_cache'):
         try:
@@ -522,6 +538,9 @@ async def lifespan(app: FastAPI):
     yield
 
     await publish_event(request, EVENTS.SYSTEM_SHUTDOWN_STARTED, source='system')
+    await app.state.brain_agent.stop()
+    if hasattr(app.state, 'big_events_discovery_task'):
+        app.state.big_events_discovery_task.cancel()
     await app_connections.close()
 
     # Shutdown: clean up shared resources
@@ -825,6 +844,11 @@ app.include_router(images.router, prefix='/api/v1/images', tags=['images'])
 
 app.include_router(audio.router, prefix='/api/v1/audio', tags=['audio'])
 app.include_router(retrieval.router, prefix='/api/v1/retrieval', tags=['retrieval'])
+app.include_router(deep_search.router, prefix='/api/v1/deep-search', tags=['deep-search'])
+app.include_router(big_events.router, prefix='/api/v1/big-events', tags=['big-events'])
+app.include_router(file_search.router, prefix='/api/v1/file-search', tags=['file-search'])
+app.include_router(vtiger.router, prefix='/api/v1/vtiger', tags=['vtiger'])
+app.include_router(brain.router, prefix='/api/v1/brain', tags=['brain'])
 
 app.include_router(configs.router, prefix='/api/v1/configs', tags=['configs'])
 
@@ -842,6 +866,11 @@ app.include_router(channels.router, prefix='/api/v1/channels', tags=['channels']
 app.include_router(chats.router, prefix='/api/v1/chats', tags=['chats'])
 app.include_router(comments.router, prefix='/api/v1/comments', tags=['comments'])
 app.include_router(notes.router, prefix='/api/v1/notes', tags=['notes'])
+app.include_router(
+    conversation_agents.router,
+    prefix='/api/v1/conversation-agents',
+    tags=['conversation-agents'],
+)
 app.include_router(search.router, prefix='/api/v1/search', tags=['search'])
 
 
@@ -1323,6 +1352,8 @@ async def chat_completion(
             'folder_id': form_data.pop('folder_id', None),
             'filter_ids': form_data.pop('filter_ids', []),
             'tool_ids': form_data.get('tool_ids', None),
+            'file_search': form_data.get('file_search', None),
+            'file_search_query': get_last_user_message(form_data.get('messages', [])),
             'tool_servers': tool_servers,
             'files': form_data.get('files', None),
             'features': form_data.get('features', {}),
@@ -2454,6 +2485,7 @@ async def get_app_config(request: Request):
         'ui.pending_user_overlay_title',
         'ui.pending_user_overlay_content',
         'ui.watermark',
+        'deep_search.enable',
     )
 
     return {
@@ -2527,6 +2559,7 @@ async def get_app_config(request: Request):
                         config.get('chat.tool_permissions.enable') and config.get('chat.tool_permissions.auto.enable')
                     ),
                     'enable_web_search': config.get('web.search.enable'),
+                    'enable_deep_search': config.get('deep_search.enable'),
                     'enable_web_search_confirmation': config.get('web.search.confirmation.enable'),
                     'web_search_confirmation_content': config.get('web.search.confirmation.content'),
                     'enable_code_execution': config.get('code_execution.enable'),

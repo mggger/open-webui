@@ -279,6 +279,22 @@ type OllamaModelDetails = {
 };
 
 type Settings = {
+	commandAutomation?:
+		| {
+				command?: string;
+				systemPrompt?: string;
+				userInput?: string;
+				mode?: 'tools' | 'web_search' | 'deep_research';
+				toolIds?: string[];
+		  }
+		| {
+				command?: string;
+				systemPrompt?: string;
+				userInput?: string;
+				mode?: 'tools' | 'web_search' | 'deep_research';
+				toolIds?: string[];
+		  }[]
+		| null;
 	pinnedModels?: string[];
 	toolServers?: never[];
 	detectArtifacts?: boolean;
@@ -427,6 +443,7 @@ type Config = {
 		enable_web_search?: boolean;
 		enable_web_search_confirmation?: boolean;
 		web_search_confirmation_content?: string;
+		enable_deep_search?: boolean;
 		enable_google_drive_integration: boolean;
 		enable_onedrive_integration: boolean;
 		enable_image_generation: boolean;

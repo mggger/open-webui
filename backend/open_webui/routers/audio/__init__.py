@@ -25,6 +25,8 @@ from fastapi import (
     HTTPException,
     Request,
     UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
     status,
 )
 from fastapi.responses import FileResponse
@@ -55,7 +57,7 @@ from open_webui.events import EVENTS, publish_event
 from open_webui.models.config import Config
 from open_webui.routers.audio import realtime
 from open_webui.utils.access_control import has_permission
-from open_webui.utils.auth import get_admin_user, get_verified_user
+from open_webui.utils.auth import get_admin_user, get_verified_user, get_verified_user_by_token
 from open_webui.utils.headers import include_user_info_headers
 from open_webui.utils.json_codec import JSONCodec
 from open_webui.utils.misc import strict_match_mime_type
@@ -97,6 +99,7 @@ TTS_CONFIG_KEYS = {
     'AZURE_SPEECH_OUTPUT_FORMAT': 'audio.tts.azure.speech_output_format',
     'MISTRAL_API_KEY': 'audio.tts.mistral.api_key',
     'MISTRAL_API_BASE_URL': 'audio.tts.mistral.api_base_url',
+    'MOSS_API_BASE_URL': 'audio.tts.moss.api_base_url',
 }
 
 REALTIME_CONFIG_KEYS = {
@@ -272,6 +275,7 @@ class TTSConfigForm(BaseModel):
     AZURE_SPEECH_OUTPUT_FORMAT: str
     MISTRAL_API_KEY: str
     MISTRAL_API_BASE_URL: str
+    MOSS_API_BASE_URL: Optional[str] = ''
 
 
 class STTConfigForm(BaseModel):
@@ -748,6 +752,69 @@ async def _tts_mistral(request, payload, file_path, file_body_path, user):
         await _raise_tts_error(exc, r)
 
 
+MOSS_DEFAULT_BASE_URL = 'http://localhost:8000'
+
+
+async def _get_moss_base_url() -> str:
+    return (await Config.get('audio.tts.moss.api_base_url') or MOSS_DEFAULT_BASE_URL).rstrip('/')
+
+
+async def _tts_moss(request, payload, file_path, file_body_path, user):
+    text = payload.get('input', '')
+    if not text:
+        raise HTTPException(status_code=400, detail="Missing 'input' text")
+    if len(text) > 4000:
+        raise HTTPException(status_code=400, detail='MOSS text exceeds 4000 chars')
+
+    base_url = await _get_moss_base_url()
+
+    max_attempts = 3
+    backoff = 0.5
+    last_status = None
+    last_detail = 'Open WebUI: MOSS TTS Connection Error'
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+            async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+                async with session.post(
+                    url=f'{base_url}/tts',
+                    json={'text': text},
+                    headers={'Content-Type': 'application/json'},
+                    ssl=AIOHTTP_CLIENT_SESSION_SSL,
+                ) as r:
+                    if r.status == 200:
+                        await _write_tts_cache(file_path, await r.read(), file_body_path, payload, 'audio/wav')
+                        return FileResponse(file_path, media_type='audio/wav')
+
+                    last_status = r.status
+                    try:
+                        res = await r.json()
+                        if 'detail' in res:
+                            last_detail = f"MOSS: {res['detail']}"
+                    except Exception:
+                        last_detail = f'MOSS: HTTP {r.status}'
+
+                    retryable = r.status == 503 or 500 <= r.status < 600
+                    if not retryable:
+                        raise HTTPException(status_code=r.status, detail=last_detail)
+
+        except HTTPException:
+            raise
+        except asyncio.TimeoutError:
+            last_detail = 'MOSS: timeout'
+            log.warning('MOSS TTS attempt %d/%d timeout', attempt, max_attempts)
+        except Exception as e:
+            last_detail = f'MOSS: {e}'
+            log.warning('MOSS TTS attempt %d/%d failed: %s', attempt, max_attempts, e)
+
+        if attempt < max_attempts:
+            await asyncio.sleep(backoff)
+            backoff *= 2
+
+    raise HTTPException(status_code=last_status or 503, detail=last_detail)
+
+
 # Dispatcher map: engine name -> handler
 _TTS_ENGINES = {
     'openai': _tts_openai,
@@ -756,6 +823,7 @@ _TTS_ENGINES = {
     'azure': _tts_azure,
     'transformers': _tts_transformers,
     'mistral': _tts_mistral,
+    'moss': _tts_moss,
 }
 
 
@@ -819,7 +887,7 @@ async def speech(request: Request, user=Depends(get_verified_user)):
             + (b':slim' if USE_SLIM else b'')
         ).hexdigest()
 
-    extension = 'wav' if engine == 'openai-realtime' else 'mp3'
+    extension = 'wav' if engine in ('openai-realtime', 'moss') else 'mp3'
     file_path = SPEECH_CACHE_DIR.joinpath(f'{name}.{extension}')
     file_body_path = SPEECH_CACHE_DIR.joinpath(f'{name}.json')
 
@@ -832,8 +900,8 @@ async def speech(request: Request, user=Depends(get_verified_user)):
             subject_id=name,
             data={'engine': engine, 'cached': True},
         )
-        content_type = 'audio/wav' if engine == 'openai-realtime' else None
-        if USE_SLIM and engine != 'openai-realtime':
+        content_type = 'audio/wav' if engine in ('openai-realtime', 'moss') else None
+        if USE_SLIM and engine not in ('openai-realtime', 'moss'):
             async with aiofiles.open(file_path.with_suffix('.mime')) as f:
                 content_type = await f.read()
         return FileResponse(file_path, media_type=content_type)
@@ -1624,6 +1692,38 @@ _OPENAI_DEFAULT_VOICES = {
 }
 
 
+@router.get('/moss/health')
+async def moss_health(request: Request, user=Depends(get_verified_user)):
+    base_url = await _get_moss_base_url()
+    try:
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+            async with session.get(f'{base_url}/health', ssl=AIOHTTP_CLIENT_SESSION_SSL) as r:
+                if r.status == 200:
+                    try:
+                        data = await r.json()
+                    except Exception:
+                        data = {"status": "ok"}
+                    return {
+                        "reachable": True,
+                        "status": data.get("status", "ok"),
+                        "base_url": base_url,
+                    }
+                return {
+                    "reachable": False,
+                    "status": f"http_{r.status}",
+                    "base_url": base_url,
+                }
+    except Exception as e:
+        log.warning("MOSS health check failed: %s", e)
+        return {
+            "reachable": False,
+            "status": "error",
+            "base_url": base_url,
+            "error": str(e),
+        }
+
+
 async def get_available_voices(request) -> dict:
     """Return ``{voice_id: voice_name}`` for the configured TTS engine."""
     engine = await Config.get('audio.tts.engine')
@@ -1723,3 +1823,352 @@ async def get_available_voices(request) -> dict:
 @router.get('/voices')
 async def get_voices(request: Request, user=Depends(get_verified_user)):
     return {'voices': [{'id': k, 'name': v} for k, v in (await get_available_voices(request)).items()]}
+
+
+##########################################
+#
+# WebSocket streaming STT
+#
+#   - Client connects to /api/v1/audio/stream?token=<jwt>
+#   - Client sends 16kHz, 16-bit mono PCM frames as binary messages.
+#   - Silero VAD (ONNX, no torch dep) decides speech start / end.
+#   - On speech end, we pass the collected PCM to faster-whisper for
+#     one-shot transcription and emit {type:"final", text:"..."}.
+#
+##########################################
+
+STREAM_SAMPLE_RATE = 16000
+VAD_CHUNK_SAMPLES = 512  # 32ms per chunk at 16 kHz
+VAD_CHUNK_BYTES = VAD_CHUNK_SAMPLES * 2
+# Trailing-silence window before we decide the user is done talking.
+# 800ms tolerates natural mid-sentence pauses (thinking, breath, "嗯…") so
+# we don't cut customers off mid-answer. The old value of 320ms was too
+# aggressive for conversational speech, especially in Chinese where there
+# are short pauses between clauses.
+VAD_SILENCE_CHUNKS = 25  # ~800ms of trailing silence -> finalize
+# Discard utterances that are too short to be real speech (sniffs, "嗯", clicks).
+# These usually come from background noise crossing the VAD threshold briefly.
+MIN_UTTERANCE_CHUNKS = 8  # ~256ms minimum
+MAX_UTTERANCE_SECONDS = 30
+
+SILERO_VAD_ONNX_URL = (
+    "https://github.com/snakers4/silero-vad/raw/v5.1/src/silero_vad/data/silero_vad.onnx"
+)
+
+_silero_vad_cache = {"session": None}
+
+
+class _SileroVADOnnx:
+    """Minimal ONNX-runtime wrapper for Silero VAD v5.
+
+    We avoid the `silero-vad` PyPI package because it transitively imports
+    torchaudio, which often fails to load when torch/torchaudio native
+    libs are mismatched on the host. Here we run the ONNX model directly
+    with `onnxruntime` (already a project dep), keeping per-chunk LSTM
+    state ourselves.
+    """
+
+    def __init__(self, session):
+        import numpy as np  # noqa: F401
+
+        self.session = session
+        self.reset()
+
+    def reset(self):
+        import numpy as np
+
+        # v5 models take a single state tensor of shape (2, 1, 128)
+        self._state = np.zeros((2, 1, 128), dtype=np.float32)
+
+    def __call__(self, audio_chunk, sr: int) -> float:
+        import numpy as np
+
+        x = np.asarray(audio_chunk, dtype=np.float32).reshape(1, -1)
+        sr_tensor = np.array(sr, dtype=np.int64)
+        out, new_state = self.session.run(
+            None,
+            {"input": x, "state": self._state, "sr": sr_tensor},
+        )
+        self._state = new_state
+        return float(out.reshape(-1)[0])
+
+
+def _silero_vad_model_path() -> str:
+    cache_path = CACHE_DIR / "audio" / "silero_vad.onnx"
+    if cache_path.is_file() and cache_path.stat().st_size > 0:
+        return str(cache_path)
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    log.info("Downloading Silero VAD ONNX model: %s", SILERO_VAD_ONNX_URL)
+    r = requests.get(SILERO_VAD_ONNX_URL, timeout=60)
+    r.raise_for_status()
+    with open(cache_path, "wb") as f:
+        f.write(r.content)
+    log.info("Silero VAD ONNX cached at %s (%d bytes)", cache_path, len(r.content))
+    return str(cache_path)
+
+
+def _get_silero_vad_session():
+    """Lazy-load the Silero VAD ONNX session once per process."""
+    if _silero_vad_cache["session"] is not None:
+        return _silero_vad_cache["session"]
+
+    import onnxruntime as ort
+
+    path = _silero_vad_model_path()
+    opts = ort.SessionOptions()
+    opts.inter_op_num_threads = 1
+    opts.intra_op_num_threads = 1
+    session = ort.InferenceSession(
+        path, sess_options=opts, providers=["CPUExecutionProvider"]
+    )
+    _silero_vad_cache["session"] = session
+    log.info("Silero VAD (ONNX) session loaded")
+    return session
+
+
+async def _ws_authenticate(websocket: WebSocket):
+    token = websocket.query_params.get("token")
+    if not token:
+        token = websocket.cookies.get("token")
+    if not token:
+        await websocket.close(code=4401)
+        return None
+
+    try:
+        user = await get_verified_user_by_token(
+            token, getattr(websocket.app.state, "redis", None)
+        )
+    except Exception:
+        user = None
+
+    if user is None:
+        await websocket.close(code=4401)
+        return None
+    return user
+
+
+def _run_whisper_sync(model, pcm_i16_bytes: bytes, language: Optional[str]):
+    import numpy as np
+
+    audio = (
+        np.frombuffer(pcm_i16_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+    )
+    segments, _info = model.transcribe(
+        audio,
+        beam_size=5,
+        vad_filter=False,
+        language=language,
+    )
+    return "".join(seg.text for seg in segments).strip()
+
+
+def _pcm_to_wav(pcm_i16_bytes: bytes) -> bytes:
+    output = io.BytesIO()
+    with wave.open(output, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(STREAM_SAMPLE_RATE)
+        wav.writeframes(pcm_i16_bytes)
+    return output.getvalue()
+
+
+async def _run_openai_stt(app, user, pcm_i16_bytes: bytes, language: Optional[str]):
+    stt_config = await Config.get_many(
+        "audio.stt.openai.api_base_url", "audio.stt.openai.api_key", "audio.stt.model"
+    )
+    base_url = (stt_config.get("audio.stt.openai.api_base_url") or "").rstrip("/")
+    if not base_url:
+        raise RuntimeError("OpenAI STT base URL is not configured")
+
+    form = aiohttp.FormData()
+    form.add_field(
+        "file",
+        _pcm_to_wav(pcm_i16_bytes),
+        filename="conversation.wav",
+        content_type="audio/wav",
+    )
+    form.add_field("model", stt_config.get("audio.stt.model") or "whisper-1")
+    if language:
+        form.add_field("language", language)
+
+    headers = {
+        "Authorization": f"Bearer {stt_config.get('audio.stt.openai.api_key') or 'EMPTY'}"
+    }
+    if user and ENABLE_FORWARD_USER_INFO_HEADERS:
+        headers = include_user_info_headers(headers, user)
+
+    timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+        async with session.post(
+            f"{base_url}/audio/transcriptions",
+            data=form,
+            headers=headers,
+            ssl=AIOHTTP_CLIENT_SESSION_SSL,
+        ) as response:
+            if response.status >= 400:
+                detail = await response.text()
+                raise RuntimeError(
+                    f"OpenAI STT returned HTTP {response.status}: {detail}"
+                )
+            data = await response.json()
+            return str(data.get("text", "")).strip()
+
+
+@router.websocket("/stream")
+async def audio_stream(websocket: WebSocket):
+    await websocket.accept()
+    user = await _ws_authenticate(websocket)
+    if user is None:
+        return
+
+    app = websocket.app
+    language = websocket.query_params.get("language") or None
+
+    stt_engine = await Config.get("audio.stt.engine") or ""
+    if stt_engine not in ("", "openai"):
+        await websocket.send_json(
+            {
+                "type": "error",
+                "error": (
+                    "Streaming STT supports the built-in Whisper and "
+                    "OpenAI-compatible engines only."
+                ),
+            }
+        )
+        await websocket.close()
+        return
+
+    try:
+        vad_session = await asyncio.to_thread(_get_silero_vad_session)
+        vad = _SileroVADOnnx(vad_session)
+    except Exception as e:
+        log.exception("Silero VAD load failed")
+        await websocket.send_json({"type": "error", "error": f"VAD load failed: {e}"})
+        await websocket.close()
+        return
+
+    whisper_model = None
+    if stt_engine == "" and app.state.faster_whisper_model is None:
+        try:
+            app.state.faster_whisper_model = await asyncio.to_thread(
+                set_faster_whisper_model, await Config.get("audio.stt.whisper_model")
+            )
+        except Exception as e:
+            log.exception("Whisper load failed")
+            await websocket.send_json(
+                {"type": "error", "error": f"Whisper load failed: {e}"}
+            )
+            await websocket.close()
+            return
+
+    if stt_engine == "":
+        whisper_model = app.state.faster_whisper_model
+
+    await websocket.send_json({"type": "ready"})
+
+    recv_buf = bytearray()
+    utterance = bytearray()
+    speech_active = False
+    silence_run = 0
+    max_utterance_bytes = MAX_UTTERANCE_SECONDS * STREAM_SAMPLE_RATE * 2
+
+    async def finalize_utterance():
+        nonlocal utterance, speech_active, silence_run
+        if not utterance:
+            return
+
+        # Reject utterances shorter than MIN_UTTERANCE_CHUNKS: they are
+        # almost always noise (cough, click, brief "嗯") and turning them
+        # into transcripts derails the conversation. Reset state and keep
+        # listening rather than emitting a final.
+        min_bytes = MIN_UTTERANCE_CHUNKS * VAD_CHUNK_BYTES
+        if len(utterance) < min_bytes:
+            utterance = bytearray()
+            speech_active = False
+            silence_run = 0
+            vad.reset()
+            return
+
+        pcm = bytes(utterance)
+        utterance = bytearray()
+        speech_active = False
+        silence_run = 0
+        vad.reset()
+        await websocket.send_json({"type": "speech_end"})
+        try:
+            if stt_engine == "openai":
+                text = await _run_openai_stt(app, user, pcm, language)
+            else:
+                text = await asyncio.to_thread(
+                    _run_whisper_sync, whisper_model, pcm, language
+                )
+        except Exception as e:
+            log.exception("Streaming transcription failed")
+            await websocket.send_json(
+                {"type": "error", "error": f"Transcription failed: {e}"}
+            )
+            return
+        await websocket.send_json({"type": "final", "text": text})
+
+    try:
+        while True:
+            msg = await websocket.receive()
+            if msg.get("type") == "websocket.disconnect":
+                break
+
+            if "bytes" in msg and msg["bytes"] is not None:
+                recv_buf.extend(msg["bytes"])
+            elif "text" in msg and msg["text"] is not None:
+                try:
+                    ctrl = json.loads(msg["text"])
+                except Exception:
+                    continue
+                if ctrl.get("type") == "flush" and speech_active:
+                    await finalize_utterance()
+                continue
+            else:
+                continue
+
+            import numpy as np
+
+            while len(recv_buf) >= VAD_CHUNK_BYTES:
+                chunk_bytes = bytes(recv_buf[:VAD_CHUNK_BYTES])
+                del recv_buf[:VAD_CHUNK_BYTES]
+
+                chunk_np = (
+                    np.frombuffer(chunk_bytes, dtype=np.int16).astype(np.float32)
+                    / 32768.0
+                )
+                prob = vad(chunk_np, STREAM_SAMPLE_RATE)
+                is_speech = prob >= 0.5
+
+                if is_speech:
+                    if not speech_active:
+                        speech_active = True
+                        await websocket.send_json({"type": "speech_start"})
+                    utterance.extend(chunk_bytes)
+                    silence_run = 0
+                elif speech_active:
+                    utterance.extend(chunk_bytes)
+                    silence_run += 1
+                    if silence_run >= VAD_SILENCE_CHUNKS:
+                        await finalize_utterance()
+
+                if len(utterance) >= max_utterance_bytes:
+                    log.warning("Utterance exceeded max duration, forcing finalize")
+                    await finalize_utterance()
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        log.exception("audio_stream error")
+        try:
+            await websocket.send_json({"type": "error", "error": str(e)})
+        except Exception:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass

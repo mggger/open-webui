@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-import requests
+from tavily import TavilyClient
 from open_webui.env import TAVILY_API_BASE_URL
 from open_webui.retrieval.web.main import SearchResult, get_filtered_results
 
@@ -28,16 +28,8 @@ def search_tavily(
     Returns:
         A list of SearchResult objects.
     """
-    url = f'{TAVILY_API_BASE_URL}/search'
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {api_key}',
-    }
-    data = {'query': query, 'max_results': count, 'search_depth': search_depth}
-    response = requests.post(url, headers=headers, json=data)
-    response.raise_for_status()
-
-    json_response = response.json()
+    tavily_client = TavilyClient(api_key=api_key, api_base_url=TAVILY_API_BASE_URL)
+    json_response = tavily_client.search(query, max_results=count, search_depth=search_depth)
 
     results = json_response.get('results', [])
     if filter_list:

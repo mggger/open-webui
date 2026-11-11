@@ -11,7 +11,7 @@ pyotp==2.9.0
 qrcode==8.2
 bcrypt==5.0.0
 argon2-cffi==25.1.0
-PyJWT[crypto]==2.13.0
+PyJWT[crypto]==2.15.1
 authlib==1.7.2
 joserfc==1.7.4
 
@@ -47,8 +47,11 @@ asgiref==3.11.1
 # AI libraries
 tiktoken==0.13.0
 mcp==2.3.0
+livekit-api>=1.0.7
+livekit-agents[mcp]==1.8.11
+livekit-plugins-openai==1.8.11
 
-openai==2.29.0
+openai==3.49.0
 anthropic==0.86.0
 
 langchain-core==1.4.8
@@ -71,6 +74,7 @@ chardet==7.4.3
 pypdf==6.21.2
 docx2txt==0.9
 python-docx==1.2.0
+smbprotocol>=1.15,<2
 python-pptx==1.0.2
 msoffcrypto-tool==6.0.0
 unstructured==0.22.31
@@ -102,6 +106,7 @@ youtube-transcript-api==1.2.4
 
 pydub==0.25.1
 ddgs==9.14.4
+tavily-python==0.7.20
 
 azure-ai-documentintelligence==1.0.2
 azure-identity==1.25.3
@@ -135,15 +140,15 @@ colbert-ai==0.2.22
 ldap3==2.9.1
 
 ## Trace
-opentelemetry-api==1.42.1
-opentelemetry-sdk==1.42.1
-opentelemetry-exporter-otlp==1.42.1
-opentelemetry-instrumentation==0.63b1
-opentelemetry-instrumentation-fastapi==0.63b1
-opentelemetry-instrumentation-sqlalchemy==0.63b1
-opentelemetry-instrumentation-redis==0.63b1
-opentelemetry-instrumentation-requests==0.63b1
-opentelemetry-instrumentation-logging==0.63b1
-opentelemetry-instrumentation-httpx==0.63b1
-opentelemetry-instrumentation-aiohttp-client==0.63b1
-opentelemetry-instrumentation-system-metrics==0.63b1
+opentelemetry-api==1.45.2
+opentelemetry-sdk==1.45.2
+opentelemetry-exporter-otlp==1.45.2
+opentelemetry-instrumentation==0.66b2
+opentelemetry-instrumentation-fastapi==0.66b2
+opentelemetry-instrumentation-sqlalchemy==0.66b2
+opentelemetry-instrumentation-redis==0.66b2
+opentelemetry-instrumentation-requests==0.66b2
+opentelemetry-instrumentation-logging==0.66b2
+opentelemetry-instrumentation-httpx==0.66b2
+opentelemetry-instrumentation-aiohttp-client==0.66b2
+opentelemetry-instrumentation-system-metrics==0.66b2

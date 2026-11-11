@@ -116,7 +116,10 @@
 	import MoreHorizontalIcon from './Sidebar/icons/MoreHorizontal.svelte';
 	import MobileSwipePanel from '../common/MobileSwipePanel.svelte';
 
-	const DEFAULT_PINNED_ITEMS = ['notes', 'workspace'];
+	import BrainIcon from '$lib/components/layout/Sidebar/icons/Brain.svelte';
+	import BigEventsIcon from '$lib/components/icons/Calendar.svelte';
+	import ConversationAgentIcon from '$lib/components/icons/Mic.svelte';
+	const DEFAULT_PINNED_ITEMS = ['notes', 'workspace', 'brain', 'big_events', 'conversation_agent'];
 
 	let scrollTop = 0;
 
@@ -308,6 +311,12 @@
 				);
 			case 'playground':
 				return $user?.role === 'admin';
+			case 'brain':
+				return true;
+			case 'big_events':
+				return true;
+			case 'conversation_agent':
+				return $user?.role === 'admin';
 			default:
 				return false;
 		}
@@ -319,7 +328,10 @@
 			workspace: { label: $i18n.t('Workspace'), href: '/workspace', iconType: 'workspace' },
 			automations: { label: $i18n.t('Automations'), href: '/automations', iconType: 'automations' },
 			calendar: { label: $i18n.t('Calendar'), href: '/calendar', iconType: 'calendar' },
-			playground: { label: $i18n.t('Playground'), href: '/playground', iconType: 'playground' }
+			playground: { label: $i18n.t('Playground'), href: '/playground', iconType: 'playground' },
+			brain: { label: $i18n.t('Brain'), href: '/brain', iconType: 'brain' },
+			big_events: { label: $i18n.t('Big events'), href: '/big-events', iconType: 'big_events' },
+			conversation_agent: { label: $i18n.t('Conversation Agent'), href: '/conversation', iconType: 'conversation_agent' }
 		};
 		return items[id];
 	};
@@ -329,7 +341,10 @@
 		workspace: '/workspace',
 		calendar: '/calendar',
 		automations: '/automations',
-		playground: '/playground'
+		playground: '/playground',
+		brain: '/brain',
+		big_events: '/big-events',
+		conversation_agent: '/conversation'
 	};
 
 	const getActiveMenuItemId = (pathname) => {
@@ -1227,6 +1242,12 @@
 												<CalendarIcon className="size-4" strokeWidth="1.5" />
 											{:else if itemId === 'playground'}
 												<CodeIcon className="size-4" strokeWidth="1.5" />
+											{:else if itemId === 'brain'}
+												<BrainIcon className="size-4" strokeWidth="1.5" />
+											{:else if itemId === 'big_events'}
+												<BigEventsIcon className="size-4" strokeWidth="1.5" />
+											{:else if itemId === 'conversation_agent'}
+												<ConversationAgentIcon className="size-4" strokeWidth="1.5" />
 											{/if}
 										</div>
 									</a>
@@ -1472,6 +1493,12 @@
 													<CalendarIcon className="size-4" strokeWidth="1.5" />
 												{:else if itemId === 'playground'}
 													<CodeIcon className="size-4" strokeWidth="1.5" />
+												{:else if itemId === 'brain'}
+													<BrainIcon className="size-4" strokeWidth="1.5" />
+												{:else if itemId === 'big_events'}
+													<BigEventsIcon className="size-4" strokeWidth="1.5" />
+												{:else if itemId === 'conversation_agent'}
+													<ConversationAgentIcon className="size-4" strokeWidth="1.5" />
 												{/if}
 											</div>
 

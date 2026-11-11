@@ -34,6 +34,7 @@ ARG GID
 
 # Set Node.js options (heap limit Allocation failed - JavaScript heap out of memory)
 # ENV NODE_OPTIONS="--max-old-space-size=4096"
+ENV ONNXRUNTIME_NODE_INSTALL_CUDA=skip
 
 WORKDIR /app
 
@@ -182,6 +183,7 @@ RUN --mount=from=ghcr.io/astral-sh/uv:0.12.10,source=/uv,target=/bin/uv \
     python -c "import os; import tiktoken; tiktoken.get_encoding(os.environ['TIKTOKEN_ENCODING_NAME'])"; \
     fi; \
     fi; \
+    python -c "import uvicorn, livekit, mcp"; \
     mkdir -p /app/backend/data; chown -R $UID:$GID /app/backend/data/; \
     if [ -d /app/backend/data/cache ]; then chmod -R a+rX /app/backend/data/cache; fi; \
     rm -rf /var/lib/apt/lists/*;

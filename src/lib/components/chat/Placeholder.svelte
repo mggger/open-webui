@@ -72,6 +72,9 @@
 	export let toolApprovalMode = 'full';
 	export let onToolApprovalModeChange: Function = () => {};
 	export let oauthRedirectHandler: Function = () => {};
+	export let deepSearchEnabled = false;
+	export let fileSearchEnabled = false;
+	export let fileSearchDirectory = '';
 
 	export let onUpload: Function = (e) => {};
 	export let onUpdate: (data?: { file?: any }) => void = () => {};
@@ -279,6 +282,9 @@
 						bind:imageGenerationEnabled
 						bind:codeInterpreterEnabled
 						bind:webSearchEnabled
+						bind:deepSearchEnabled
+						bind:fileSearchEnabled
+						bind:fileSearchDirectory
 						bind:atSelectedModel
 						bind:showCommands
 						bind:dragged

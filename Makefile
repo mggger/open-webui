@@ -8,10 +8,6 @@ endif
 install:
 	$(DOCKER_COMPOSE) up -d
 
-remove:
-	@chmod +x confirm_remove.sh
-	@./confirm_remove.sh
-
 start:
 	$(DOCKER_COMPOSE) start
 startAndBuild: 
@@ -30,4 +26,3 @@ update:
 	@docker stop open-webui || true
 	$(DOCKER_COMPOSE) up --build -d
 	$(DOCKER_COMPOSE) start
-

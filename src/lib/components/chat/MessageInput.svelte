@@ -81,6 +81,7 @@
 	import { getFolderById } from '$lib/apis/folders';
 	import { getNoteById } from '$lib/apis/notes';
 	import { getSessionUser } from '$lib/apis/auths';
+	import { getFileSearchConfig, type FileSearchConfig } from '$lib/apis/file-search';
 
 	import { WEBUI_BASE_URL, WEBUI_API_BASE_URL, PASTED_TEXT_CHARACTER_LIMIT } from '$lib/constants';
 	import { matchKeybinding, Shortcut } from '$lib/shortcuts';
@@ -105,6 +106,7 @@
 
 	import XMark from '../icons/XMark.svelte';
 	import GlobeAlt from '../icons/GlobeAlt.svelte';
+	import Search from '../icons/Search.svelte';
 	import Photo from '../icons/Photo.svelte';
 	import Wrench from '../icons/Wrench.svelte';
 	import ArrowUpLeft from '../icons/ArrowUpLeft.svelte';
@@ -123,7 +125,9 @@
 	import CommandSuggestionList from './MessageInput/CommandSuggestionList.svelte';
 	import Knobs from '../icons/Knobs.svelte';
 	import CodeBrackets from '../icons/CodeBrackets.svelte';
+	import FolderOpen from '../icons/FolderOpen.svelte';
 	import ValvesModal from '../workspace/common/ValvesModal.svelte';
+	import FileSearchFolderPickerModal from './MessageInput/FileSearchFolderPickerModal.svelte';
 	import Note from '../icons/Note.svelte';
 	import AskUserCard from './AskUserCard.svelte';
 	import { goto } from '$app/navigation';
@@ -251,6 +255,7 @@
 
 	export let imageGenerationEnabled = false;
 	export let webSearchEnabled = false;
+	export let deepSearchEnabled = false;
 	export let codeInterpreterEnabled = false;
 	export let toolApprovalMode = 'full';
 	export let onToolApprovalModeChange: Function = () => {};
@@ -311,6 +316,8 @@
 	export let chatTasks = [];
 
 	let inputContent = null;
+	export let fileSearchEnabled = false;
+	export let fileSearchDirectory = '';
 
 	let showInputVariablesModal = false;
 	let inputVariablesModalCallback = (variableValues) => {};
@@ -348,7 +355,10 @@
 		selectedFilterIds,
 		imageGenerationEnabled,
 		webSearchEnabled,
-		codeInterpreterEnabled
+		deepSearchEnabled,
+		codeInterpreterEnabled,
+		fileSearchEnabled,
+		fileSearchDirectory
 	};
 
 	$: onChange(chatInputDraft);
@@ -911,6 +921,13 @@
 		modelCapabilitiesById
 	);
 
+	let deepSearchCapableModels = [];
+	$: deepSearchCapableModels = getCapableModelIds(
+		selectedModelIds,
+		'web_search',
+		modelCapabilitiesById
+	);
+
 	let imageGenerationCapableModels = [];
 	$: imageGenerationCapableModels = getCapableModelIds(
 		selectedModelIds,
@@ -952,6 +969,37 @@
 
 	let showToolsButton = false;
 	$: showToolsButton = ($tools ?? []).length > 0 || ($toolServers ?? []).length > 0;
+	let showFileSearchButton = true;
+
+	// File Search Agent: the picker lives here (not in the integrations menu) because the
+	// menu content unmounts as soon as it closes.
+	let fileSearchConfig: FileSearchConfig | null = null;
+	let showFileSearchFolderPicker = false;
+
+	const loadFileSearchConfig = async () => {
+		fileSearchConfig = await getFileSearchConfig(localStorage.token).catch(() => null);
+		if (fileSearchConfig?.configured && !fileSearchDirectory) {
+			fileSearchDirectory = fileSearchConfig.default_directory ?? '';
+		}
+	};
+
+	const openFileSearchPicker = async () => {
+		if (!fileSearchConfig?.configured) {
+			await loadFileSearchConfig();
+		}
+		if (!fileSearchConfig?.configured) {
+			toast.error($i18n.t('Configure File Search Agent in Settings first'));
+			return;
+		}
+		fileSearchDirectory = fileSearchDirectory || fileSearchConfig.default_directory || '';
+		showInputMenu = false;
+		await tick();
+		showFileSearchFolderPicker = true;
+	};
+
+	onMount(() => {
+		void loadFileSearchConfig();
+	});
 
 	let showSkillsButton = false;
 	$: showSkillsButton =
@@ -963,6 +1011,16 @@
 		selectedModelIds.length === webSearchCapableModels.length &&
 		$config?.features?.enable_web_search &&
 		($_user.role === 'admin' || $_user?.permissions?.features?.web_search);
+
+	let showDeepSearchButton = false;
+	$: showDeepSearchButton =
+		selectedModelIds.length === deepSearchCapableModels.length &&
+		$config?.features?.enable_deep_search &&
+		($_user.role === 'admin' || $_user?.permissions?.features?.web_search);
+
+	$: if (!showDeepSearchButton && deepSearchEnabled) {
+		deepSearchEnabled = false;
+	}
 
 	let showImageGenerationButton = false;
 	$: showImageGenerationButton =
@@ -1950,6 +2008,18 @@
 	onSave={inputVariablesModalCallback}
 />
 
+{#if fileSearchConfig}
+	<FileSearchFolderPickerModal
+		bind:show={showFileSearchFolderPicker}
+		config={fileSearchConfig}
+		initialDirectory={fileSearchDirectory}
+		onSelect={(directory) => {
+			fileSearchDirectory = directory;
+			fileSearchEnabled = true;
+		}}
+	/>
+{/if}
+
 <ValvesModal
 	bind:show={showValvesModal}
 	userValves={true}
@@ -2654,19 +2724,24 @@
 
 										<!-- Retired menu label: keep its translation. {$i18n.t('Integrations')} -->
 										<svelte:fragment slot="integrations">
-											{#if showWebSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || showSkillsButton || (toggleFilters && toggleFilters.length > 0)}
+											{#if showWebSearchButton || showDeepSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || showSkillsButton || showFileSearchButton || (toggleFilters && toggleFilters.length > 0)}
 												<IntegrationsMenu
 													bind:show={showInputMenu}
 													bind:tab={inputMenuTab}
 													selectedModels={selectedModelIds}
 													{toggleFilters}
 													{showWebSearchButton}
+													{showDeepSearchButton}
 													{showImageGenerationButton}
 													{showCodeInterpreterButton}
 													bind:selectedToolIds
 													bind:selectedSkillIds
 													bind:selectedFilterIds
 													bind:webSearchEnabled
+													bind:deepSearchEnabled
+													{fileSearchConfig}
+													{fileSearchEnabled}
+													onFileSearchClick={openFileSearchPicker}
 													bind:imageGenerationEnabled
 													bind:codeInterpreterEnabled
 													oauthRedirectHandler={(tool: {
@@ -2753,6 +2828,27 @@
 													<span data-input-label class="text-sm">
 														{(selectedToolIds ?? []).length}
 													</span>
+												</button>
+											</Tooltip>
+										{/if}
+
+										{#if fileSearchEnabled}
+											<Tooltip
+												content={`${$i18n.t('File Search Agent')}: ${fileSearchDirectory || $i18n.t('Share root')}`}
+												placement="top"
+											>
+												<button
+													aria-label={$i18n.t('File Search Agent')}
+													on:click|preventDefault={() => {
+														fileSearchEnabled = false;
+													}}
+													type="button"
+													class="group p-[0.375rem] flex items-center rounded-full text-sky-500 dark:text-sky-300 bg-sky-50 hover:bg-sky-100 dark:bg-sky-400/10 dark:hover:bg-sky-600/10 border border-sky-200/40 dark:border-sky-500/20"
+												>
+													<FolderOpen className="size-4" strokeWidth="1.75" />
+													<div class="hidden group-hover:block">
+														<XMark className="size-4" strokeWidth="1.75" />
+													</div>
 												</button>
 											</Tooltip>
 										{/if}
@@ -2856,7 +2952,12 @@
 												<button
 													aria-label={$i18n.t('Web Search')}
 													aria-pressed={webSearchEnabled}
-													on:click|preventDefault={() => (webSearchEnabled = !webSearchEnabled)}
+													on:click|preventDefault={() => {
+														webSearchEnabled = !webSearchEnabled;
+														if (webSearchEnabled) {
+															deepSearchEnabled = false;
+														}
+													}}
 													type="button"
 													class="group p-[0.375rem] flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden {webSearchEnabled ||
 													($settings?.webSearch ?? false) === 'always'
@@ -2864,6 +2965,25 @@
 														: 'bg-transparent text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 '}"
 												>
 													<GlobeAlt className="size-4" strokeWidth="1.75" />
+												</button>
+											</Tooltip>
+										{/if}
+
+										{#if deepSearchEnabled && showDeepSearchButton}
+											<Tooltip content={$i18n.t('Deep Search')} placement="top">
+												<button
+													aria-label={$i18n.t('Deep Search')}
+													aria-pressed={deepSearchEnabled}
+													on:click|preventDefault={() => {
+														deepSearchEnabled = !deepSearchEnabled;
+													}}
+													type="button"
+													class="group p-[0.375rem] flex gap-1.5 items-center text-sm rounded-full transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden text-sky-500 dark:text-sky-300 bg-sky-50 hover:bg-sky-100 dark:bg-sky-400/10 dark:hover:bg-sky-600/10 border border-sky-200/40 dark:border-sky-500/20"
+												>
+													<Search className="size-4" strokeWidth="1.75" />
+													<div class="hidden group-hover:block">
+														<XMark className="size-4" strokeWidth="1.75" />
+													</div>
 												</button>
 											</Tooltip>
 										{/if}

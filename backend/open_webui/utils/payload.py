@@ -1,5 +1,6 @@
 import logging
 from copy import deepcopy
+from datetime import datetime, timedelta
 from typing import Callable, Optional
 
 from fastapi import HTTPException
@@ -63,6 +64,46 @@ async def resolve_system_prompt(
     return system
 
 
+DATETIME_PREFIX_MARKER = "Current date and time:"
+
+
+def _current_datetime_prefix() -> str:
+    now = datetime.now()
+    upcoming_days = 7
+    upcoming_lines = []
+    for offset in range(1, upcoming_days + 1):
+        day = now + timedelta(days=offset)
+        upcoming_lines.append(f"  {day.strftime('%Y-%m-%d')} = {day.strftime('%A')}")
+    upcoming_table = "\n".join(upcoming_lines)
+    return (
+        f"{DATETIME_PREFIX_MARKER} {now.strftime('%Y-%m-%d %H:%M')} "
+        f"({now.strftime('%A')}).\n"
+        f"Upcoming dates (use this table verbatim — do not recompute):\n"
+        f"{upcoming_table}\n"
+        "When you need to state the weekday for any date within the next week "
+        "(e.g. scheduling, meeting notices, emails), look it up directly in the "
+        "table above. For dates beyond this range, compute by counting days from "
+        "today's date and double-check the result before answering."
+    )
+
+
+def _messages_already_have_datetime_prefix(messages: list) -> bool:
+    if not messages:
+        return False
+    first = messages[0]
+    if not isinstance(first, dict) or first.get("role") != "system":
+        return False
+    content = first.get("content")
+    if isinstance(content, str):
+        return DATETIME_PREFIX_MARKER in content
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                if DATETIME_PREFIX_MARKER in (item.get("text") or ""):
+                    return True
+    return False
+
+
 # What goes out cannot be taken back. Let it be shaped
 # well before it leaves this place.
 # Mutates form_data in place.
@@ -73,14 +114,21 @@ async def apply_system_prompt_to_body(
     user=None,
     replace: bool = False,
 ) -> dict:
+    messages = form_data.get('messages', [])
+    datetime_prefix = None if _messages_already_have_datetime_prefix(messages) else _current_datetime_prefix()
+
     system = await resolve_system_prompt(system, metadata, user)
+    if system and datetime_prefix:
+        system = f'{datetime_prefix}\n\n{system}'
+    elif datetime_prefix:
+        system = datetime_prefix
     if not system:
         return form_data
 
     if replace:
-        form_data['messages'] = replace_system_message_content(system, form_data.get('messages', []))
+        form_data['messages'] = replace_system_message_content(system, messages)
     else:
-        form_data['messages'] = add_or_update_system_message(system, form_data.get('messages', []))
+        form_data['messages'] = add_or_update_system_message(system, messages)
 
     return form_data
 

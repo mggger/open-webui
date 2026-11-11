@@ -50,6 +50,8 @@
 				<button
 					aria-label={`${getDisplayTitle(formattedTitle(decodeString(sourceIds[token.ids[0] - 1])))} +${(token?.ids ?? []).length - 1} more sources`}
 					class="text-[0.625rem] w-fit translate-y-[2px] px-2 py-0.5 dark:bg-white/5 dark:text-white/80 dark:hover:text-white bg-gray-50 text-black/80 hover:text-black transition rounded-xl"
+					data-export-ignore="true"
+					data-source-token="true"
 					on:click={() => {
 						openPreview = !openPreview;
 					}}

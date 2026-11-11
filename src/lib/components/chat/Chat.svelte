@@ -109,6 +109,7 @@
 	} from '$lib/apis/chats';
 	import { resolveTerminalConnection, setCwd, type FilesystemFile } from '$lib/apis/terminal';
 	import { generateOpenAIChatCompletion, getErrorMessage } from '$lib/apis/openai';
+	import { generateDeepSearchReport } from '$lib/apis/deep-search';
 	import { processUrl, processWebSearch } from '$lib/apis/retrieval';
 	import {
 		getAndUpdateUserLocation,
@@ -371,6 +372,9 @@
 
 	let imageGenerationEnabled = false;
 	let webSearchEnabled = false;
+	let deepSearchEnabled = false;
+	let fileSearchEnabled = false;
+	let fileSearchDirectory = '';
 	let codeInterpreterEnabled = false;
 	let webSearchActive = false;
 	let showWebSearchConfirm = false;
@@ -842,6 +846,9 @@
 			selectedSkillIds = input.selectedSkillIds ?? [];
 			selectedFilterIds = input.selectedFilterIds ?? [];
 			webSearchEnabled = input.webSearchEnabled ?? false;
+			deepSearchEnabled = input.deepSearchEnabled ?? false;
+			fileSearchEnabled = input.fileSearchEnabled ?? false;
+			fileSearchDirectory = input.fileSearchDirectory ?? '';
 			imageGenerationEnabled = input.imageGenerationEnabled ?? false;
 			codeInterpreterEnabled = input.codeInterpreterEnabled ?? false;
 			// Ignore approval modes in older drafts. Restoring input must not overwrite chat
@@ -927,6 +934,9 @@
 		selectedSkillIds = [];
 		selectedFilterIds = [];
 		webSearchEnabled = false;
+		deepSearchEnabled = false;
+		fileSearchEnabled = false;
+		fileSearchDirectory = '';
 		imageGenerationEnabled = false;
 		codeInterpreterEnabled = false;
 
@@ -969,6 +979,9 @@
 		selectedSkillIds = [];
 		selectedFilterIds = [];
 		webSearchEnabled = false;
+		deepSearchEnabled = false;
+		fileSearchEnabled = false;
+		fileSearchDirectory = '';
 		imageGenerationEnabled = false;
 		codeInterpreterEnabled = false;
 		prompt = '';
@@ -1040,6 +1053,9 @@
 		selectedFilterIds = [];
 		pendingOAuthTools = [];
 		webSearchEnabled = false;
+		deepSearchEnabled = false;
+		fileSearchEnabled = false;
+		fileSearchDirectory = '';
 		imageGenerationEnabled = false;
 		codeInterpreterEnabled = false;
 
@@ -2054,6 +2070,9 @@
 				selectedSkillIds = [];
 				selectedFilterIds = [];
 				webSearchEnabled = false;
+				deepSearchEnabled = false;
+				fileSearchEnabled = false;
+				fileSearchDirectory = '';
 				imageGenerationEnabled = false;
 				codeInterpreterEnabled = false;
 
@@ -3759,6 +3778,54 @@
 		if (selectedModels.includes('')) throw new Error($i18n.t('Model not selected'));
 		const _files = structuredClone(inputFiles);
 
+		// Command automation: a "!command" prompt can swap in a configured prompt,
+		// add a system prompt and switch the request into tools / web search / deep research mode.
+		let systemPromptOverride = null;
+		const commandAutomationConfig = $settings?.commandAutomation;
+		const commandAutomationRules = Array.isArray(commandAutomationConfig)
+			? commandAutomationConfig
+			: commandAutomationConfig
+				? [commandAutomationConfig]
+				: [];
+		const normalizedPrompt = (inputContent ?? '').trim();
+		const matchedRule = commandAutomationRules.find((rule) => {
+			const command = (rule?.command ?? '').trim();
+			return (
+				command.startsWith('!') &&
+				(normalizedPrompt === command || normalizedPrompt.startsWith(`${command} `))
+			);
+		});
+
+		if (matchedRule) {
+			const mode = matchedRule?.mode ?? 'tools';
+			const configuredUserInput = (matchedRule?.userInput ?? '').trim();
+			const configuredSystemPrompt = (matchedRule?.systemPrompt ?? '').trim();
+			const configuredToolIds = Array.isArray(matchedRule?.toolIds)
+				? matchedRule.toolIds.filter((toolId) => typeof toolId === 'string' && toolId.trim())
+				: [];
+
+			if (configuredUserInput) {
+				inputContent = configuredUserInput;
+			}
+			if (configuredSystemPrompt) {
+				systemPromptOverride = configuredSystemPrompt;
+			}
+
+			if (mode === 'deep_research') {
+				deepSearchEnabled = true;
+				webSearchEnabled = false;
+				selectedToolIds = [];
+			} else if (mode === 'web_search') {
+				webSearchEnabled = true;
+				deepSearchEnabled = false;
+				selectedToolIds = [];
+			} else if (mode === 'tools') {
+				deepSearchEnabled = false;
+				webSearchEnabled = false;
+				selectedToolIds = configuredToolIds;
+			}
+		}
+
 		chatFiles.push(
 			..._files.filter(
 				(item) =>
@@ -3806,7 +3873,8 @@
 		saveSessionSelectedModels();
 
 		return await sendMessage(history, userMessageId, {
-			modelId: bridgeRequest?.modelId ?? null
+			modelId: bridgeRequest?.modelId ?? null,
+			systemPromptOverride
 		});
 	};
 
@@ -4247,13 +4315,15 @@
 			modelId = null,
 			modelIdx = null,
 			regenerationPrompt = null,
-			regenerationMessageId = null
+			regenerationMessageId = null,
+			systemPromptOverride = null
 		}: {
 			messages?: any[] | null;
 			modelId?: string | null;
 			modelIdx?: number | null;
 			regenerationPrompt?: string | null;
 			regenerationMessageId?: string | null;
+			systemPromptOverride?: string | null;
 		} = {}
 	) => {
 		const parent = _history.messages[parentId];
@@ -4360,6 +4430,39 @@
 			}
 		}
 
+		if (deepSearchEnabled) {
+			// Deep research runs through its own endpoint, one report per selected model.
+			if (!_chatId && !$temporaryChatEnabled) {
+				_chatId = await initChatHandler(history);
+				if (!_chatId) return { status: 'rejected' as const };
+				_history = structuredClone(history);
+			}
+
+			generating = true;
+			generationController = new AbortController();
+
+			await Promise.all(
+				messageIdsList.map(async ({ model_id, message_id }) => {
+					const model = $models.filter((m) => m.id === model_id).at(0);
+					if (!model) {
+						toast.error($i18n.t(`Model {{modelId}} not found`, { modelId: model_id }));
+						return;
+					}
+					await sendDeepSearch(model, _history, message_id, _chatId, systemPromptOverride);
+				})
+			);
+
+			generating = false;
+			generationController = null;
+			return {
+				status: 'submitted' as const,
+				chatId: $chatId,
+				userMessageId: parentId,
+				assistantMessageId: messageIdsList[0]?.message_id,
+				taskIds: []
+			};
+		}
+
 		// Single request — backend fans out to all models
 		const primaryModelId = selectedModelIds[0];
 		const primaryModel = $models.filter((m) => m.id === primaryModelId).at(0);
@@ -4383,7 +4486,8 @@
 						// Send message_ids even for single-column regenerations to preserve modelIdx on reload.
 						messageIdsList: messageIdsList.length > 0 ? messageIdsList : undefined,
 						regenerationPrompt,
-						regenerationMessageId
+						regenerationMessageId,
+						systemPromptOverride
 					}
 				);
 				submittedTaskIds =
@@ -4399,6 +4503,131 @@
 			assistantMessageId: primaryResponseMessageId,
 			taskIds: submittedTaskIds
 		};
+	};
+
+	const sendDeepSearch = async (
+		model,
+		_history,
+		responseMessageId,
+		_chatId,
+		systemPromptOverride = null
+	) => {
+		const responseMessage = _history.messages[responseMessageId];
+		const userMessage = _history.messages[responseMessage.parentId];
+		const systemPrompt = [params?.system || $settings?.system || '', systemPromptOverride]
+			.filter(Boolean)
+			.join('\n\n');
+
+		scrollToBottom();
+		eventTarget.dispatchEvent(
+			new CustomEvent('chat:start', {
+				detail: {
+					id: responseMessageId
+				}
+			})
+		);
+
+		responseMessage.statusHistory = [
+			{
+				action: 'deep_search',
+				description: $i18n.t('Running deep research'),
+				done: false
+			}
+		];
+		history.messages[responseMessageId] = responseMessage;
+
+		try {
+			const res = await generateDeepSearchReport(
+				localStorage.token,
+				{
+					query: userMessage?.content ?? '',
+					system: systemPrompt,
+					messages: createMessagesList(_history, responseMessageId).map((message) => ({
+						role: message.role,
+						content: message.content
+					})),
+					model: model.id,
+					chat_id: _chatId,
+					message_id: responseMessageId,
+					session_id: $socket?.id
+				},
+				generationController?.signal
+			);
+
+			responseMessage.content = res ?? '';
+			responseMessage.done = true;
+			responseMessage.statusHistory = [
+				{
+					action: 'deep_search',
+					description: $i18n.t('Deep research completed'),
+					done: true
+				}
+			];
+		} catch (error) {
+			let errorMessage = error;
+			if (error?.error?.message) {
+				errorMessage = error.error.message;
+			} else if (error?.message) {
+				errorMessage = error.message;
+			}
+
+			if (typeof errorMessage === 'object') {
+				errorMessage = $i18n.t(`Uh-oh! There was an issue with the response.`);
+			}
+
+			if (generationController?.signal?.aborted) {
+				errorMessage = $i18n.t('Request cancelled');
+			}
+
+			responseMessage.error = {
+				content: errorMessage
+			};
+			responseMessage.done = true;
+			responseMessage.statusHistory = [
+				{
+					action: 'deep_search',
+					description: $i18n.t('Deep research failed'),
+					done: true,
+					error: true
+				}
+			];
+		}
+
+		history.messages[responseMessageId] = responseMessage;
+		history.currentId = responseMessageId;
+
+		await tick();
+		await saveChatHandler(_chatId, history);
+		scrollToBottom();
+
+		if (
+			!$temporaryChatEnabled &&
+			($settings?.title?.auto ?? true) &&
+			_chatId &&
+			!isTemporaryChatId(_chatId)
+		) {
+			const messages = createMessagesList(history, history.currentId).map((message) => ({
+				role: message.role,
+				content: message.content
+			}));
+
+			const generatedTitle = await generateTitle(
+				localStorage.token,
+				model.id,
+				messages,
+				_chatId
+			).catch(() => null);
+
+			if (generatedTitle) {
+				await updateChatById(localStorage.token, _chatId, {
+					title: generatedTitle
+				});
+				if ($chatId === _chatId) {
+					chatTitle.set(generatedTitle);
+				}
+				await refreshChatList(localStorage.token);
+			}
+		}
 	};
 
 	const getFeatures = () => {
@@ -4452,12 +4681,14 @@
 			messageIdsList,
 			regenerationPrompt,
 			regenerationMessageId,
-			continueResponse = false
+			continueResponse = false,
+			systemPromptOverride = null
 		}: {
 			messageIdsList?: Array<{ model_id: string; message_id: string }>;
 			regenerationPrompt?: string | null;
 			regenerationMessageId?: string | null;
 			continueResponse?: boolean;
+			systemPromptOverride?: string | null;
 		} = {}
 	) => {
 		const responseMessage = _history.messages[responseMessageId];
@@ -4513,10 +4744,11 @@
 			true;
 		// Always include system prompt — backend extracts it and prepends to DB messages.
 		// Only temp chats need conversation messages (persisted chats load from DB).
+		const systemPrompt = [params?.system || $settings?.system || '', systemPromptOverride]
+			.filter(Boolean)
+			.join('\n\n');
 		let messages: any[] = [
-			params?.system || $settings.system
-				? { role: 'system', content: `${params?.system || $settings?.system || ''}` }
-				: undefined
+			systemPrompt ? { role: 'system', content: systemPrompt } : undefined
 		].filter(Boolean);
 
 		if ($temporaryChatEnabled) {
@@ -4636,6 +4868,12 @@
 						: $config?.features?.enable_tools
 				),
 				skill_ids: skillIds.length > 0 ? skillIds : undefined,
+				file_search: fileSearchEnabled
+					? {
+							enabled: true,
+							directory: fileSearchDirectory
+						}
+					: undefined,
 				terminal_id: terminalEnabled && requestTerminalId ? requestTerminalId : null,
 				terminal_cwd:
 					!_chatId && terminalContext?.terminalId === requestTerminalId
@@ -5127,7 +5365,10 @@
 		selectedFilterIds,
 		imageGenerationEnabled,
 		webSearchEnabled,
-		codeInterpreterEnabled
+		deepSearchEnabled,
+		codeInterpreterEnabled,
+		fileSearchEnabled,
+		fileSearchDirectory
 	});
 
 	const saveDraft = async (draft: any, chatId: string | null = null, debounce = true) => {
@@ -5648,6 +5889,9 @@
 										{pendingOAuthTools}
 										{oauthRedirectHandler}
 										bind:webSearchEnabled
+										bind:deepSearchEnabled
+										bind:fileSearchEnabled
+										bind:fileSearchDirectory
 										bind:atSelectedModel
 										bind:showCommands
 										bind:dragged
@@ -5749,6 +5993,9 @@
 										{pendingOAuthTools}
 										{oauthRedirectHandler}
 										bind:webSearchEnabled
+										bind:deepSearchEnabled
+										bind:fileSearchEnabled
+										bind:fileSearchDirectory
 										bind:atSelectedModel
 										bind:showCommands
 										bind:dragged
@@ -5816,6 +6063,9 @@
 									bind:imageGenerationEnabled
 									bind:codeInterpreterEnabled
 									bind:webSearchEnabled
+									bind:deepSearchEnabled
+									bind:fileSearchEnabled
+									bind:fileSearchDirectory
 									bind:atSelectedModel
 									bind:showCommands
 									bind:dragged

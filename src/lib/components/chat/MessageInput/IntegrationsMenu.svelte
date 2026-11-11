@@ -27,6 +27,7 @@
 	} from '$lib/apis/terminal';
 
 	import { toast } from 'svelte-sonner';
+	import type { FileSearchConfig } from '$lib/apis/file-search';
 
 	import Knobs from '$lib/components/icons/Knobs.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
@@ -37,11 +38,13 @@
 	import Cube from '$lib/components/icons/Cube.svelte';
 	import Sparkles from '$lib/components/icons/Sparkles.svelte';
 	import GlobeAlt from '$lib/components/icons/GlobeAlt.svelte';
+	import Search from '$lib/components/icons/Search.svelte';
 	import Photo from '$lib/components/icons/Photo.svelte';
 	import Terminal from '$lib/components/icons/Terminal.svelte';
 	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
 	import LinkSlash from '$lib/components/icons/LinkSlash.svelte';
+	import FolderOpen from '$lib/components/icons/FolderOpen.svelte';
 
 	const i18n = getContext('i18n') as any;
 
@@ -74,10 +77,15 @@
 
 	export let showWebSearchButton = false;
 	export let webSearchEnabled = false;
+	export let showDeepSearchButton = false;
+	export let deepSearchEnabled = false;
 	export let showImageGenerationButton = false;
 	export let imageGenerationEnabled = false;
 	export let showCodeInterpreterButton = false;
 	export let codeInterpreterEnabled = false;
+	export let fileSearchEnabled = false;
+	export let fileSearchConfig: FileSearchConfig | null = null;
+	export let onFileSearchClick: Function = () => {};
 
 	export let onShowValves: Function;
 	export let onWebSearchToggle: Function = () => {};
@@ -320,6 +328,27 @@
 				</button>
 			{/if}
 
+			<button
+				role="menuitem"
+				class="flex w-full justify-between gap-2 items-center h-[1.6875rem] px-2 text-[0.8125rem] font-normal cursor-pointer rounded-xl hover:bg-gray-50/40 dark:hover:bg-gray-800/40"
+				on:click={() => {
+					onFileSearchClick();
+				}}
+			>
+				<FolderOpen className="size-3.5" />
+				<div class="flex items-center w-full justify-between">
+					<div class="line-clamp-1">
+						{$i18n.t('File Search Agent')}
+						{#if !fileSearchConfig?.configured}
+							<span class="ml-1 text-xs text-gray-400">{$i18n.t('Not configured')}</span>
+						{:else if fileSearchEnabled}
+							<span class="ml-1 text-xs text-sky-500">{$i18n.t('On')}</span>
+						{/if}
+					</div>
+					<div class="text-gray-500"><ChevronRight /></div>
+				</div>
+			</button>
+
 			{#if skills && Object.keys(skills).length > 0}
 				<button
 					role="menuitem"
@@ -443,6 +472,9 @@
 					aria-checked={webSearchEnabled}
 					on:click={() => {
 						webSearchEnabled = !webSearchEnabled;
+						if (webSearchEnabled) {
+							deepSearchEnabled = false;
+						}
 						// Left open, this menu would swallow the first click on the confirmation dialog
 						if (webSearchEnabled && $config?.features?.enable_web_search_confirmation) {
 							show = false;
@@ -462,6 +494,36 @@
 
 					<div class=" shrink-0" inert>
 						<Switch state={webSearchEnabled} />
+					</div>
+				</button>
+			</Tooltip>
+		{/if}
+
+		{#if showDeepSearchButton}
+			<Tooltip content={$i18n.t('Run deep research')} placement="top-start">
+				<button
+					class="flex w-full justify-between gap-2 items-center h-[1.6875rem] px-2 text-[0.8125rem] font-normal cursor-pointer rounded-xl hover:bg-gray-50/40 dark:hover:bg-gray-800/40"
+					role="menuitemcheckbox"
+					aria-checked={deepSearchEnabled}
+					on:click={() => {
+						deepSearchEnabled = !deepSearchEnabled;
+						if (deepSearchEnabled) {
+							webSearchEnabled = false;
+						}
+					}}
+				>
+					<div class="flex-1 truncate">
+						<div class="flex flex-1 gap-2 items-center">
+							<div class="shrink-0">
+								<Search className="size-3.5" strokeWidth="1.5" />
+							</div>
+
+							<div class=" truncate">{$i18n.t('Deep Search')}</div>
+						</div>
+					</div>
+
+					<div class=" shrink-0" inert>
+						<Switch state={deepSearchEnabled} />
 					</div>
 				</button>
 			</Tooltip>

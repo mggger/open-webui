@@ -61,7 +61,10 @@
 
 	const dispatch = createEventDispatcher();
 
-	const DEFAULT_PINNED_ITEMS = ['notes', 'workspace'];
+	import BrainIcon from '$lib/components/layout/Sidebar/icons/Brain.svelte';
+	import BigEventsIcon from '$lib/components/icons/Calendar.svelte';
+	import ConversationAgentIcon from '$lib/components/icons/Mic.svelte';
+	const DEFAULT_PINNED_ITEMS = ['notes', 'workspace', 'brain', 'big_events', 'conversation_agent'];
 
 	$: pinnedItems = $settings?.pinnedMenuItems ?? DEFAULT_PINNED_ITEMS;
 
@@ -513,6 +516,153 @@
 					{/if}
 				</div>
 			{/if}
+
+			{#if $user}
+				<div
+					class="user-menu-row flex items-center w-full rounded-xl hover:bg-gray-50/60 dark:hover:bg-gray-800/60 transition-colors"
+				>
+					<a
+						role="menuitem"
+						href="/brain"
+						draggable="false"
+						class="flex flex-1 min-w-0 h-[1.6875rem] items-center gap-2 rounded-xl px-2 text-[0.8125rem] cursor-pointer select-none"
+						on:click={async (e) => {
+							if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+							e.preventDefault();
+							show = false;
+							goto('/brain');
+							if ($mobile) {
+								await tick();
+								showSidebar.set(false);
+							}
+						}}
+					>
+						<div class="self-center">
+							<BrainIcon className="size-3.5" strokeWidth="1.5" />
+						</div>
+						<div class="self-center truncate">{$i18n.t('Brain')}</div>
+					</a>
+					{#if shiftKey}
+						<Tooltip
+							content={pinnedItems.includes('brain')
+								? $i18n.t('Unpin from Sidebar')
+								: $i18n.t('Pin to Sidebar')}
+						>
+							<button
+								aria-label={pinnedItems.includes('brain')
+									? $i18n.t('Unpin from Sidebar')
+									: $i18n.t('Pin to Sidebar')}
+								role="menuitem"
+								type="button"
+								class="p-1 mr-1 rounded-lg hover:bg-gray-100/60 dark:hover:bg-gray-700/60 transition"
+								on:click|preventDefault|stopPropagation={() => togglePin('brain')}
+							>
+								{#if pinnedItems.includes('brain')}
+									<PinSlashIcon className="size-3.5" strokeWidth="1.5" />
+								{:else}
+									<PinIcon className="size-3.5" strokeWidth="1.5" />
+								{/if}
+							</button>
+						</Tooltip>
+					{/if}
+
+			{#if $user}
+				<div
+					class="user-menu-row flex items-center w-full rounded-xl hover:bg-gray-50/60 dark:hover:bg-gray-800/60 transition-colors"
+				>
+					<a
+						role="menuitem"
+						href="/big-events"
+						draggable="false"
+						class="flex flex-1 min-w-0 h-[1.6875rem] items-center gap-2 rounded-xl px-2 text-[0.8125rem] cursor-pointer select-none"
+						on:click={async (e) => {
+							if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+							e.preventDefault();
+							show = false;
+							goto('/big-events');
+							if ($mobile) {
+								await tick();
+								showSidebar.set(false);
+							}
+						}}
+					>
+						<div class="self-center">
+							<BigEventsIcon className="size-3.5" strokeWidth="1.5" />
+						</div>
+						<div class="self-center truncate">{$i18n.t('Big events')}</div>
+					</a>
+					{#if shiftKey}
+						<Tooltip
+							content={pinnedItems.includes('big_events')
+								? $i18n.t('Unpin from Sidebar')
+								: $i18n.t('Pin to Sidebar')}
+						>
+							<button
+								aria-label={pinnedItems.includes('big_events')
+									? $i18n.t('Unpin from Sidebar')
+									: $i18n.t('Pin to Sidebar')}
+								role="menuitem"
+								type="button"
+								class="p-1 mr-1 rounded-lg hover:bg-gray-100/60 dark:hover:bg-gray-700/60 transition"
+								on:click|preventDefault|stopPropagation={() => togglePin('big_events')}
+							>
+								{#if pinnedItems.includes('big_events')}
+									<PinSlashIcon className="size-3.5" strokeWidth="1.5" />
+								{:else}
+									<PinIcon className="size-3.5" strokeWidth="1.5" />
+								{/if}
+							</button>
+						</Tooltip>
+					{/if}
+
+			{#if $user?.role === 'admin'}
+				<div
+					class="user-menu-row flex items-center w-full rounded-xl hover:bg-gray-50/60 dark:hover:bg-gray-800/60 transition-colors"
+				>
+					<a
+						role="menuitem"
+						href="/conversation"
+						draggable="false"
+						class="flex flex-1 min-w-0 h-[1.6875rem] items-center gap-2 rounded-xl px-2 text-[0.8125rem] cursor-pointer select-none"
+						on:click={async (e) => {
+							if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+							e.preventDefault();
+							show = false;
+							goto('/conversation');
+							if ($mobile) {
+								await tick();
+								showSidebar.set(false);
+							}
+						}}
+					>
+						<div class="self-center">
+							<ConversationAgentIcon className="size-3.5" strokeWidth="1.5" />
+						</div>
+						<div class="self-center truncate">{$i18n.t('Conversation Agent')}</div>
+					</a>
+					{#if shiftKey}
+						<Tooltip
+							content={pinnedItems.includes('conversation_agent')
+								? $i18n.t('Unpin from Sidebar')
+								: $i18n.t('Pin to Sidebar')}
+						>
+							<button
+								aria-label={pinnedItems.includes('conversation_agent')
+									? $i18n.t('Unpin from Sidebar')
+									: $i18n.t('Pin to Sidebar')}
+								role="menuitem"
+								type="button"
+								class="p-1 mr-1 rounded-lg hover:bg-gray-100/60 dark:hover:bg-gray-700/60 transition"
+								on:click|preventDefault|stopPropagation={() => togglePin('conversation_agent')}
+							>
+								{#if pinnedItems.includes('conversation_agent')}
+									<PinSlashIcon className="size-3.5" strokeWidth="1.5" />
+								{:else}
+									<PinIcon className="size-3.5" strokeWidth="1.5" />
+								{/if}
+							</button>
+						</Tooltip>
+					{/if}
 
 			{#if help}
 				<hr class="border-gray-50/30 dark:border-gray-800/30 my-0.5 mx-1 p-0" />

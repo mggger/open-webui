@@ -477,6 +477,11 @@
 			</ul>
 		{/if}
 	{:else if token.type === 'detail_group'}
+		<div
+			data-export-ignore={(token.items ?? []).every((item) => item?.attributes?.type === 'reasoning')
+				? 'true'
+				: undefined}
+		>
 		<ConsecutiveDetailsGroup
 			id={`${id}-${tokenIdx}-detail-group`}
 			tokens={token.items}
@@ -549,9 +554,11 @@
 				{/each}
 			</div>
 		</ConsecutiveDetailsGroup>
+		</div>
 	{:else if token.type === 'details'}
 		{@const textContent = getDetailTextContent(token)}
 
+		<div data-export-ignore={token?.attributes?.type === 'reasoning' ? 'true' : undefined}>
 		{#if token?.attributes?.type === 'tool_calls'}
 			<!-- Tool calls have dedicated handling with ToolCallDisplay component -->
 			<ToolCallDisplay
@@ -608,6 +615,7 @@
 				dir="auto"
 			/>
 		{/if}
+		</div>
 	{:else if token.type === 'html'}
 		<HtmlToken {id} {token} {onSourceClick} />
 	{:else if token.type === 'iframe'}

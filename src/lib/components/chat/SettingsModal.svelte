@@ -26,9 +26,11 @@
 	import Usage from './Settings/Usage.svelte';
 	import ArchivedChats from './Settings/ArchivedChats.svelte';
 	import Personalization from './Settings/Personalization.svelte';
+	import CommandAutomation from './Settings/CommandAutomation.svelte';
 	import Search from '../icons/Search.svelte';
 	import Connections from './Settings/Connections.svelte';
 	import Integrations from './Settings/Integrations.svelte';
+	import FileSearch from './Settings/FileSearch.svelte';
 	import DatabaseSettings from '../icons/DatabaseSettings.svelte';
 	import SettingsAlt from '../icons/SettingsAlt.svelte';
 	import Link from '../icons/Link.svelte';
@@ -61,6 +63,11 @@
 	import AdminImages from '$lib/components/admin/Settings/Images.svelte';
 	import AdminPipelines from '$lib/components/admin/Settings/Pipelines.svelte';
 	import AdminDatabase from '$lib/components/admin/Settings/Database.svelte';
+	import AdminDeepSearch from '$lib/components/admin/Settings/DeepSearch.svelte';
+	import AdminVtiger from '$lib/components/admin/Settings/Vtiger.svelte';
+	import AdminBrain from '$lib/components/admin/Settings/Brain.svelte';
+	import CommandLine from '../icons/CommandLine.svelte';
+	import FolderOpen from '../icons/FolderOpen.svelte';
 
 	const i18n: Writable<any> = getContext('i18n');
 
@@ -149,8 +156,10 @@
 		shortcuts: $i18n.t('Basics'),
 		connections: $i18n.t('Services'),
 		tools: $i18n.t('Services'),
+		file_search: $i18n.t('Services'),
 		personalization: $i18n.t('Preferences'),
 		audio: $i18n.t('Preferences'),
+		command_automation: $i18n.t('Preferences'),
 		data_controls: $i18n.t('Data'),
 		usage: $i18n.t('Data'),
 		archived_chats: $i18n.t('Data'),
@@ -171,6 +180,9 @@
 		'admin:audio': $i18n.t('Tools'),
 		'admin:images': $i18n.t('Tools'),
 		'admin:web': $i18n.t('Tools'),
+		'admin:deep-search': $i18n.t('Tools'),
+		'admin:vtiger': $i18n.t('Tools'),
+		'admin:brain': $i18n.t('Tools'),
 		'admin:code-execution': $i18n.t('Tools'),
 		'admin:pipelines': $i18n.t('Tools'),
 		'admin:evaluations': $i18n.t('Quality'),
@@ -224,6 +236,18 @@
 			titleKey: 'settings.personal.tools.title',
 			title: $i18n.t('settings.personal.tools.title'),
 			searchPrefixes: ['settings.personal.tools.']
+		},
+		{
+			id: 'file_search',
+			titleKey: 'File Search Agent',
+			title: $i18n.t('File Search Agent'),
+			searchPrefixes: []
+		},
+		{
+			id: 'command_automation',
+			titleKey: 'Command Automation',
+			title: $i18n.t('Command Automation'),
+			searchPrefixes: []
 		},
 		{
 			id: 'personalization',
@@ -341,6 +365,24 @@
 			titleKey: 'settings.admin.web.title',
 			title: $i18n.t('settings.admin.web.title'),
 			searchPrefixes: ['settings.admin.web.']
+		},
+		{
+			id: 'admin:deep-search',
+			titleKey: 'Deep Search',
+			title: $i18n.t('Deep Search'),
+			searchPrefixes: []
+		},
+		{
+			id: 'admin:vtiger',
+			titleKey: 'Vtiger CRM',
+			title: $i18n.t('Vtiger CRM'),
+			searchPrefixes: []
+		},
+		{
+			id: 'admin:brain',
+			titleKey: 'Brain',
+			title: $i18n.t('Brain'),
+			searchPrefixes: []
 		},
 		{
 			id: 'admin:code-execution',
@@ -705,6 +747,19 @@
 									<span>{$i18n.t('settings.personal.tools.title')}</span>
 								</button>
 							{/if}
+						{:else if tabId === 'file_search'}
+							<button
+								role="tab"
+								aria-controls="tab-file-search"
+								aria-selected={selectedTab === 'file_search'}
+								class={tabButtonClass(selectedTab === 'file_search')}
+								on:click={() => {
+									selectTab('file_search');
+								}}
+							>
+								<FolderOpen className="size-3.5" strokeWidth="2" />
+								<span>{$i18n.t('File Search Agent')}</span>
+							</button>
 						{:else if tabId === 'personalization'}
 							<button
 								role="tab"
@@ -717,6 +772,19 @@
 							>
 								<Face className="size-3.5" strokeWidth="2" />
 								<span>{$i18n.t('settings.personal.personalization.title')}</span>
+							</button>
+						{:else if tabId === 'command_automation'}
+							<button
+								role="tab"
+								aria-controls="tab-command-automation"
+								aria-selected={selectedTab === 'command_automation'}
+								class={tabButtonClass(selectedTab === 'command_automation')}
+								on:click={() => {
+									selectTab('command_automation');
+								}}
+							>
+								<CommandLine className="size-3.5" strokeWidth="2" />
+								<span>{$i18n.t('Command Automation')}</span>
 							</button>
 						{:else if tabId === 'audio'}
 							<button
@@ -883,6 +951,15 @@
 						toast.success($i18n.t('Settings saved successfully!'));
 					}}
 				/>
+			{:else if selectedTab === 'file_search'}
+				<FileSearch />
+			{:else if selectedTab === 'command_automation'}
+				<CommandAutomation
+					{saveSettings}
+					on:save={() => {
+						toast.success($i18n.t('Settings saved successfully!'));
+					}}
+				/>
 			{:else if selectedTab === 'personalization'}
 				<Personalization
 					{saveSettings}
@@ -937,6 +1014,12 @@
 				<AdminDocuments on:save={adminConfigSaveHandler} />
 			{:else if selectedTab === 'admin:web'}
 				<AdminWebSearch saveHandler={adminConfigSaveHandler} />
+			{:else if selectedTab === 'admin:deep-search'}
+				<AdminDeepSearch saveHandler={adminConfigSaveHandler} />
+			{:else if selectedTab === 'admin:vtiger'}
+				<AdminVtiger saveHandler={adminConfigSaveHandler} />
+			{:else if selectedTab === 'admin:brain'}
+				<AdminBrain />
 			{:else if selectedTab === 'admin:code-execution'}
 				<AdminCodeExecution saveHandler={adminConfigSaveHandler} />
 			{:else if selectedTab === 'admin:interface'}

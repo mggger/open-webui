@@ -3,6 +3,7 @@
 	const i18n = getContext('i18n');
 	import WebSearchResults from '../WebSearchResults.svelte';
 	import Search from '$lib/components/icons/Search.svelte';
+	import FolderOpen from '$lib/components/icons/FolderOpen.svelte';
 	import { t } from 'i18next';
 
 	export let status = null;
@@ -12,7 +13,7 @@
 
 {#if !status?.hidden}
 	<div class="status-description flex items-center gap-2 py-0.5 w-full text-left">
-		{#if status?.action === 'web_search' && (status?.urls || status?.items)}
+		{#if (status?.action === 'web_search' || status?.action === 'deep_search') && (status?.urls || status?.items)}
 			<WebSearchResults {status}>
 				<div class="flex flex-col justify-center -space-y-0.5">
 					<div
@@ -37,6 +38,27 @@
 					</div>
 				</div>
 			</WebSearchResults>
+		{:else if status?.action === 'file_search' && status?.files?.length}
+			<div class="flex min-w-0 flex-col justify-center">
+				<div
+					class="{(done || status?.done) === false
+						? 'shimmer'
+						: ''} text-gray-500 dark:text-gray-500 text-base line-clamp-1 text-wrap"
+				>
+					{status?.description}
+				</div>
+				<div class="mt-1.5 flex flex-wrap gap-1">
+					{#each status.files as file}
+						<div
+							class="flex max-w-full items-center gap-1 rounded-lg bg-gray-50 px-2 py-1 text-xs dark:bg-gray-850"
+							title={file.path ?? file.name}
+						>
+							<FolderOpen className="size-3 shrink-0" />
+							<span class="truncate">{file.name}</span>
+						</div>
+					{/each}
+				</div>
+			</div>
 		{:else if status?.action === 'knowledge_search'}
 			<div class="flex flex-col justify-center -space-y-0.5">
 				<div
@@ -49,7 +71,7 @@
 					})}
 				</div>
 			</div>
-		{:else if status?.action === 'web_search_queries_generated' && status?.queries}
+		{:else if (status?.action === 'web_search_queries_generated' || status?.action === 'deep_search_queries_generated') && status?.queries}
 			<div class="flex flex-col justify-center -space-y-0.5">
 				<div
 					class="{(done || status?.done) === false

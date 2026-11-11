@@ -1,0 +1,15 @@
+[project]
+name = "open-webui-brain-agent"
+version = "0.1.0"
+description = "Voice-first Brain agent for Open WebUI"
+requires-python = ">=3.11"
+dependencies = [
+  "livekit-agents",
+  "livekit-plugins-openai",
+  "mcp>=1.24.0,<2",
+  "python-dotenv>=1.0",
+]
+
+[tool.uv.sources]
+livekit-agents = { path = "../../../agents/livekit-agents", editable = true }
+livekit-plugins-openai = { path = "../../../agents/livekit-plugins/livekit-plugins-openai", editable = true }

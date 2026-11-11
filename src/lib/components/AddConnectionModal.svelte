@@ -42,6 +42,7 @@
 	let enable = true;
 	let apiVersion = '';
 	let apiType = ''; // '' = chat completions (default), 'responses' = Responses API
+	let maxModelLen: number | '' = 32768;
 
 	let headers = '';
 	let passthroughParams = '';
@@ -248,7 +249,10 @@
 				...(provider ? { provider } : {}),
 				...(!ollama && azure ? { azure: true } : {}),
 				...(azure ? { api_version: apiVersion } : {}),
-				...(apiType ? { api_type: apiType } : {})
+				...(apiType ? { api_type: apiType } : {}),
+				...(!ollama && maxModelLen !== '' && Number(maxModelLen) > 0
+					? { max_model_len: Number(maxModelLen) }
+					: {})
 			}
 		};
 
@@ -272,6 +276,7 @@
 		provider = '';
 		apiVersion = '';
 		apiType = '';
+		maxModelLen = 32768;
 	};
 
 	const init = () => {
@@ -293,6 +298,7 @@
 				? connection.config.passthrough_params.join(', ')
 				: (connection.config?.passthrough_params ?? '');
 			modelIds = [...new Set(connection.config?.model_ids ?? [])];
+			maxModelLen = connection.config?.max_model_len ?? 32768;
 
 			if (ollama) {
 				connectionType = connection.config?.connection_type ?? 'local';
@@ -655,6 +661,37 @@
 									</div>
 								</div>
 							</div>
+
+							{#if !ollama}
+								<div class="flex gap-2 mt-2">
+									<div class="flex flex-col w-full">
+										<label
+											for="max-model-len-input"
+											class={`mb-0.5 text-xs text-gray-500
+								`}>{$i18n.t('Max Model Length')}</label
+										>
+
+										<div class="flex-1">
+											<Tooltip
+												content={$i18n.t(
+													"Upstream context window in tokens (e.g. 32768 for vLLM's --max-model-len). Older messages will be dropped automatically when the prompt exceeds this limit. Leave empty to disable."
+												)}
+											>
+												<input
+													class={`w-full text-sm ${inputClass}`}
+													type="number"
+													min="0"
+													step="1"
+													id="max-model-len-input"
+													bind:value={maxModelLen}
+													placeholder={$i18n.t('e.g. 32768')}
+													autocomplete="off"
+												/>
+											</Tooltip>
+										</div>
+									</div>
+								</div>
+							{/if}
 
 							{#if !ollama && !direct}
 								<div class="flex flex-row justify-between items-center w-full mt-2">

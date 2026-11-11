@@ -14,6 +14,8 @@
 	import SoundHigh from '$lib/components/icons/SoundHigh.svelte';
 	import UserCircle from '$lib/components/icons/UserCircle.svelte';
 	import WrenchAlt from '$lib/components/icons/WrenchAlt.svelte';
+	import Search from '$lib/components/icons/Search.svelte';
+	import Users from '$lib/components/icons/Users.svelte';
 
 	export let id: string;
 	export let className = 'size-3.5';
@@ -90,4 +92,22 @@
 	<QueueList {className} {strokeWidth} />
 {:else if id === 'db'}
 	<Database {className} {strokeWidth} />
+{:else if id === 'deep-search'}
+	<Search {className} {strokeWidth} />
+{:else if id === 'vtiger'}
+	<Users {className} {strokeWidth} />
+{:else if id === 'brain'}
+	<svg
+		aria-hidden="true"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		stroke-width={strokeWidth}
+		class={className}
+		><path
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			d="M9.5 4.5A3.5 3.5 0 0 0 6 8v1a3 3 0 0 0 0 6v1a3.5 3.5 0 0 0 6 2.45A3.5 3.5 0 0 0 18 16v-1a3 3 0 0 0 0-6V8a3.5 3.5 0 0 0-6-2.45A3.5 3.5 0 0 0 9.5 4.5ZM12 5.5v13M8.5 9.5H12m0 5h3.5"
+		/></svg
+	>
 {/if}

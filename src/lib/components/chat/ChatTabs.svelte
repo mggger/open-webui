@@ -241,7 +241,9 @@
 	}
 
 	async function restoreChatView(id: string | null) {
-		if (!$user?.id) return;
+		// Check for a signed-in user, not a truthy id: an empty-string id must not
+		// leave the desktop panel layout stuck on its loading spinner forever.
+		if (!$user || typeof $user.id !== 'string') return;
 		const version = ++switchVersion;
 		captureView();
 		if (viewEntry) void flushChatView(viewEntry);
@@ -1225,7 +1227,7 @@
 		void checkTerminal();
 	}
 
-	$: if (mounted && !chatLoading && $user?.id && chatId !== tabsChatId) {
+	$: if (mounted && !chatLoading && $user && typeof $user.id === 'string' && chatId !== tabsChatId) {
 		if (viewEntry && !viewEntry.chatId && chatId && viewReady) {
 			tabsChatId = chatId;
 			void bindTerminalChat(chatId).catch((error) => {

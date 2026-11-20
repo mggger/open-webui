@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { reportFailureDetails } from '$lib/utils/reportDiagnostics';
 	import EditPencilIcon from '$lib/components/layout/Sidebar/icons/EditPencil.svelte';
 	import CopyIcon from '$lib/components/layout/Sidebar/icons/Copy.svelte';
 	import TrashIcon from '$lib/components/layout/Sidebar/icons/Trash.svelte';
@@ -76,8 +77,6 @@
 	import MCPApp from '$lib/components/chat/Messages/MCPApp.svelte';
 	import OutputEditView from './OutputEditView.svelte';
 	import { getOutputText, replaceOutputMessageText, type OutputItem } from './structuredOutput';
-
-	const pdfLetterheadLogo = '/assets/images/archer_letterhead_logo.svg';
 
 	interface MessageType {
 		user_id?: string;
@@ -644,346 +643,55 @@
 		return name.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 100) || 'response';
 	};
 
-	const downloadResponsePdf = async () => {
-		if (exportingPdf) return;
-		exportingPdf = true;
-
-		const title = ($chatTitle ?? '').trim() || 'response';
-		const safeFileName = sanitizeFileName(title);
-		const contentElement =
-			markdownWrapperElement ??
-			document.getElementById(`response-markdown-wrapper-${message.id}`) ??
-			document.getElementById(`response-content-container-${message.id}`);
-		let exported = false;
-
+	const downloadProfessionalReport = async (format: 'pdf' | 'docx') => {
+		if (exportingPdf || exportingDocx) return;
+		if (format === 'pdf') exportingPdf = true;
+		else exportingDocx = true;
+		const notification = toast.loading($i18n.t('Preparing report...'), {
+			duration: Infinity,
+			dismissable: false
+		});
 		try {
-			await tick();
-			if (!contentElement) {
-				throw new globalThis.Error('Missing content element');
-			}
-
-			let wrapper: HTMLDivElement | null = null;
-			const [{ default: jsPDF }, { default: html2canvas }, { marked }] = await Promise.all([
-				import('jspdf'),
-				import('html2canvas-pro'),
-				import('marked')
-			]);
-
-			// A4 dimensions in mm
-			const pageWidthMM = 210;
-			const pageHeightMM = 297;
-			// These measurements mirror the header/footer regions in archer_template.docx.
-			const bodyTopMM = 38;
-			const bodyBottomMM = 32;
-			// Side margin (mm)
-			const sideMarginMM = 15;
-
-			// Load the exact logo embedded in the DOCX template. The surrounding header
-			// and footer text is drawn as vector text so it remains sharp in the PDF.
-			let letterheadLogoDataUrl: string | null = null;
-			if (pdfLetterheadLogo) {
-				try {
-					const res = await fetch(pdfLetterheadLogo);
-					if (!res.ok) throw new globalThis.Error(`fetch failed: ${res.status}`);
-					const blob = await res.blob();
-					const sourceDataUrl: string = await new Promise((resolve, reject) => {
-						const reader = new FileReader();
-						reader.onload = () => resolve(reader.result as string);
-						reader.onerror = reject;
-						reader.readAsDataURL(blob);
-					});
-					const srcImg = await new Promise<HTMLImageElement>((resolve, reject) => {
-						const img = new window.Image();
-						img.onload = () => resolve(img);
-						img.onerror = reject;
-						img.src = sourceDataUrl;
-					});
-					const logoCanvas = document.createElement('canvas');
-					logoCanvas.width = 484;
-					logoCanvas.height = 368;
-					const logoCtx = logoCanvas.getContext('2d');
-					if (logoCtx) {
-						logoCtx.clearRect(0, 0, logoCanvas.width, logoCanvas.height);
-						logoCtx.drawImage(srcImg, 0, 0, logoCanvas.width, logoCanvas.height);
-						letterheadLogoDataUrl = logoCanvas.toDataURL('image/png');
-					}
-				} catch (err) {
-					console.warn('Unable to prepare PDF letterhead logo', err);
-				}
-			}
-
-			try {
-				// Render the AI markdown response to HTML using the project's `marked`
-				// dependency so headings, lists, code blocks, tables etc. keep structure.
-				const rawMarkdown = removeAllDetails(message.content ?? '');
-				const renderedHtml = (await marked.parse(rawMarkdown)) as string;
-
-				// Build an off-screen wrapper at A4-printable pixel width (794px ≈ 210mm @ 96dpi).
-				// The captured response is placed between the repeated DOCX header and footer.
-				const virtualWidthPx = 794;
-				const sideMarginPx = Math.round((sideMarginMM / pageWidthMM) * virtualWidthPx);
-
-				wrapper = document.createElement('div');
-				wrapper.style.position = 'fixed';
-				wrapper.style.left = '-10000px';
-				wrapper.style.top = '0';
-				wrapper.style.width = `${virtualWidthPx}px`;
-				wrapper.style.backgroundColor = '#ffffff';
-				wrapper.style.color = '#000000';
-				wrapper.style.boxSizing = 'border-box';
-				wrapper.style.paddingTop = '20px';
-				wrapper.style.paddingLeft = `${sideMarginPx}px`;
-				wrapper.style.paddingRight = `${sideMarginPx}px`;
-				wrapper.style.paddingBottom = '40px';
-				wrapper.classList.add('pdf-export-snapshot');
-
-				const style = document.createElement('style');
-				style.textContent = `
-					.pdf-export-snapshot { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.55; color: #000; }
-					.pdf-export-snapshot p { margin: 8px 0; }
-					.pdf-export-snapshot strong { font-weight: 700; }
-					.pdf-export-snapshot em { font-style: italic; }
-					.pdf-export-snapshot ul, .pdf-export-snapshot ol { padding-left: 24px; margin: 6px 0; list-style-position: outside; }
-					.pdf-export-snapshot li { margin: 4px 0; padding-left: 2px; }
-					.pdf-export-snapshot h1 { font-size: 22px; margin: 14px 0 8px; font-weight: 700; }
-					.pdf-export-snapshot h2 { font-size: 19px; margin: 14px 0 8px; font-weight: 700; }
-					.pdf-export-snapshot h3 { font-size: 17px; margin: 12px 0 6px; font-weight: 700; }
-					.pdf-export-snapshot h4, .pdf-export-snapshot h5, .pdf-export-snapshot h6 { font-size: 15px; margin: 10px 0 6px; font-weight: 700; }
-					.pdf-export-snapshot blockquote { border-left: 3px solid #ccc; padding-left: 10px; color: #333; margin: 8px 0; }
-					.pdf-export-snapshot code { font-family: "Menlo", "Consolas", monospace; font-size: 13px; background: #f4f4f4; padding: 1px 4px; border-radius: 3px; }
-					.pdf-export-snapshot pre { font-family: "Menlo", "Consolas", monospace; font-size: 12px; background: #f6f8fa; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; margin: 8px 0; }
-					.pdf-export-snapshot pre code { background: transparent; padding: 0; }
-					.pdf-export-snapshot a { color: #1a56db; text-decoration: underline; word-break: break-word; }
-					.pdf-export-snapshot table { width: 100%; border-collapse: collapse; margin: 10px 0; table-layout: fixed; }
-					.pdf-export-snapshot th, .pdf-export-snapshot td { border: 1px solid #ccc; padding: 6px 8px; vertical-align: top; word-break: break-word; }
-					.pdf-export-snapshot thead th { background: #f0f0f0; }
-					.pdf-export-snapshot img { max-width: 100%; height: auto; }
-					.pdf-export-snapshot hr { border: none; border-top: 1px solid #ddd; margin: 12px 0; }
-					.pdf-export-snapshot tr { break-inside: avoid; page-break-inside: avoid; }
-				`;
-				wrapper.appendChild(style);
-
-				const body = document.createElement('div');
-				body.innerHTML = renderedHtml;
-				wrapper.appendChild(body);
-
-				document.body.appendChild(wrapper);
-				await new Promise((r) => setTimeout(r, 50));
-
-				// Collect "safe break" Y coordinates (in CSS px) between top-level
-				// block children so page breaks fall in the gap between blocks rather
-				// than cutting a paragraph or table row in half.
-				const wrapperTopPx = wrapper.getBoundingClientRect().top;
-				const breakablePx: number[] = [];
-				const collectBreaks = (root: HTMLElement) => {
-					Array.from(root.children).forEach((child) => {
-						if (!(child instanceof HTMLElement)) return;
-						const rect = child.getBoundingClientRect();
-						const topRel = rect.top - wrapperTopPx;
-						const bottomRel = rect.bottom - wrapperTopPx;
-						breakablePx.push(topRel);
-						// For tables/lists, also allow breaks between rows/items.
-						const tag = child.tagName.toLowerCase();
-						if (tag === 'table' || tag === 'ul' || tag === 'ol') {
-							const rows = child.querySelectorAll(tag === 'table' ? 'tr' : ':scope > li');
-							rows.forEach((row) => {
-								if (row instanceof HTMLElement) {
-									breakablePx.push(row.getBoundingClientRect().top - wrapperTopPx);
-								}
-							});
-						}
-						breakablePx.push(bottomRel);
-					});
-				};
-				collectBreaks(body);
-				breakablePx.sort((a, b) => a - b);
-
-				// Rasterize the wrapper. scale=1.5 balances size vs. clarity.
-				const captureScale = 1.5;
-				const canvas = await html2canvas(wrapper, {
-					backgroundColor: '#ffffff',
-					useCORS: true,
-					scale: captureScale,
-					logging: false,
-					windowWidth: virtualWidthPx
+			const { generateConversationReport, reportProgressLabel } =
+				await import('$lib/utils/generateConversationReport');
+			const messages = createMessagesList(history, history.currentId ?? message.id);
+			const report = await generateConversationReport(
+				messages,
+				$chatTitle || 'Report',
+				localStorage.token,
+				(progress) =>
+					toast.loading(
+						reportProgressLabel(progress, (key) => $i18n.t(key)),
+						{ id: notification, duration: Infinity, dismissable: false }
+					)
+			);
+			const fileName = sanitizeFileName(report.title);
+			if (format === 'pdf') {
+				const { downloadReportPdf } = await import('$lib/utils/exportReportPdf');
+				await downloadReportPdf(messages, { title: report.title, fileName, report });
+			} else {
+				const { downloadMessageAsDocx } = await import('$lib/utils/exportDocx');
+				await downloadMessageAsDocx(report.markdown, fileName, {
+					title: report.title,
+					reportDate: report.generatedAt,
+					layout: report.layout,
+					diagrams: report.diagrams
 				});
-
-				document.body.removeChild(wrapper);
-				wrapper = null;
-
-				// Slice the tall canvas into A4 pages, embed each slice as JPEG.
-				const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'p' });
-				const drawLetterhead = () => {
-					if (letterheadLogoDataUrl) {
-						pdf.addImage(letterheadLogoDataUrl, 'PNG', 15, 10.5, 14, 10.65, undefined, 'FAST');
-					}
-
-					pdf.setTextColor(29, 31, 32);
-					pdf.setFont('times', 'bold');
-					pdf.setFontSize(17);
-					pdf.text('ARCHER & ROUND', 33, 16.8);
-					pdf.setTextColor(79, 119, 164);
-					pdf.setFontSize(8.5);
-					pdf.text('GOVERN. ASSURE. PROTECT.', 33, 22.2);
-
-					pdf.setFontSize(8);
-					pdf.text('EST. 1996', 195, 13.4, { align: 'right' });
-					pdf.setTextColor(105, 105, 105);
-					pdf.setFont('times', 'normal');
-					pdf.text('archerround.com', 195, 17.1, { align: 'right' });
-					pdf.text('1800 841 224', 195, 20.8, { align: 'right' });
-					pdf.text('ABN 95 625 698 106', 195, 24.5, { align: 'right' });
-
-					pdf.setDrawColor(79, 119, 164);
-					pdf.setLineWidth(0.8);
-					pdf.line(15, 30.5, 195, 30.5);
-
-					pdf.setDrawColor(201, 205, 210);
-					pdf.setLineWidth(0.3);
-					pdf.line(15, 267, 195, 267);
-					pdf.setFontSize(7.2);
-					pdf.setTextColor(79, 119, 164);
-					pdf.setFont('times', 'bold');
-					pdf.text('AUSTRALIA', 15, 272);
-					pdf.text('UNITED STATES', 75, 272);
-					pdf.text('CONNECT', 195, 272, { align: 'right' });
-					pdf.setTextColor(105, 105, 105);
-					pdf.setFont('times', 'normal');
-					pdf.text(
-						['Suite 1677, 1 Denison Street', 'North Sydney, NSW 2060', '1800 841 224'],
-						15,
-						276
-					);
-					pdf.text(
-						['1200 Wilshire Blvd, Suite 800', 'Los Angeles, CA 90025', '+1 626 380 0102'],
-						75,
-						276
-					);
-					pdf.text(['archerround.com', 'linkedin.com/company/archer-round'], 195, 276, {
-						align: 'right'
-					});
-				};
-				const mmPerPx = pageWidthMM / canvas.width;
-				const totalHeightPx = canvas.height;
-				// Convert mm thresholds to canvas-pixel-space so we can compare with breakpoints
-				const pageBodyHeightMM = pageHeightMM - bodyTopMM - bodyBottomMM;
-				const pageBodyHeightPx = Math.floor(pageBodyHeightMM / mmPerPx);
-
-				// Breakable points were measured in CSS px before rasterizing. Scale to canvas px.
-				const breakableCanvasPx = breakablePx
-					.map((p) => Math.round(p * captureScale))
-					.filter((p) => p > 0 && p < totalHeightPx);
-
-				let offsetY = 0;
-				let pageIndex = 0;
-
-				while (offsetY < totalHeightPx) {
-					const maxPageBodyPx = pageBodyHeightPx;
-					const remainingPx = totalHeightPx - offsetY;
-
-					let sliceHeightPx: number;
-					if (remainingPx <= maxPageBodyPx) {
-						sliceHeightPx = remainingPx;
-					} else {
-						const hardLimit = offsetY + maxPageBodyPx;
-						// Pick the largest breakable point at or below hardLimit; fall back to hardLimit.
-						let chosen = -1;
-						for (let i = 0; i < breakableCanvasPx.length; i += 1) {
-							const p = breakableCanvasPx[i];
-							if (p <= offsetY) continue;
-							if (p > hardLimit) break;
-							chosen = p;
-						}
-						// Only use the breakpoint if it gives us a reasonable fill (>=40% of page).
-						// Otherwise just cut at hardLimit to avoid huge whitespace gaps.
-						const minFillPx = Math.floor(maxPageBodyPx * 0.4);
-						if (chosen > 0 && chosen - offsetY >= minFillPx) {
-							sliceHeightPx = chosen - offsetY;
-						} else {
-							sliceHeightPx = maxPageBodyPx;
-						}
-					}
-
-					const pageCanvas = document.createElement('canvas');
-					pageCanvas.width = canvas.width;
-					pageCanvas.height = sliceHeightPx;
-					const pageCtx = pageCanvas.getContext('2d');
-					if (!pageCtx) break;
-					pageCtx.fillStyle = '#ffffff';
-					pageCtx.fillRect(0, 0, canvas.width, sliceHeightPx);
-					pageCtx.drawImage(
-						canvas,
-						0,
-						offsetY,
-						canvas.width,
-						sliceHeightPx,
-						0,
-						0,
-						canvas.width,
-						sliceHeightPx
-					);
-
-					if (pageIndex > 0) pdf.addPage();
-
-					drawLetterhead();
-
-					const sliceHeightMM = sliceHeightPx * mmPerPx;
-					const sliceYMM = bodyTopMM;
-					const sliceJpeg = pageCanvas.toDataURL('image/jpeg', 0.75);
-					pdf.addImage(
-						sliceJpeg,
-						'JPEG',
-						0,
-						sliceYMM,
-						pageWidthMM,
-						sliceHeightMM,
-						undefined,
-						'FAST'
-					);
-
-					offsetY += sliceHeightPx;
-					pageIndex += 1;
-				}
-
-				pdf.save(`${safeFileName}-response.pdf`);
-				exported = true;
-			} catch (err) {
-				console.error('PDF export failed', err);
-				if (wrapper && wrapper.parentNode) {
-					wrapper.parentNode.removeChild(wrapper);
-				}
 			}
 		} catch (error) {
-			console.error('Error generating PDF via canvas', error);
-		}
-
-		if (!exported) {
-			toast.error($i18n.t('Failed to export PDF'));
-		}
-
-		exportingPdf = false;
-	};
-
-	const downloadResponseDocx = async () => {
-		if (exportingDocx) return;
-		exportingDocx = true;
-
-		try {
-			const title = ($chatTitle ?? '').trim() || 'response';
-			const safeFileName = sanitizeFileName(title);
-			const content = getOutputText(message.output) || removeAllDetails(message.content ?? '');
-
-			const { downloadMessageAsDocx } = await import('$lib/utils/exportDocx');
-			await downloadMessageAsDocx(content, `${safeFileName}-response`, {
-				title: $chatTitle ?? ''
+			toast.error($i18n.t('Failed to generate report. Please try again.'), {
+				description: reportFailureDetails(error, `export-${format}`, localStorage.token),
+				duration: Infinity,
+				dismissable: true
 			});
-		} catch (error) {
-			console.error('Error generating DOCX', error);
-			toast.error($i18n.t('Failed to export DOCX'));
+		} finally {
+			toast.dismiss(notification);
+			exportingPdf = false;
+			exportingDocx = false;
 		}
-
-		exportingDocx = false;
 	};
+	const downloadResponsePdf = () => downloadProfessionalReport('pdf');
+	const downloadResponseDocx = () => downloadProfessionalReport('docx');
 
 	$: if (!edit) {
 		(async () => {

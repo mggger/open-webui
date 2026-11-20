@@ -1,0 +1,27 @@
+1
+00:00:00,000 --> 00:00:04,000
+Click + and turn on Manage Engine.
+
+2
+00:00:04,000 --> 00:00:09,000
+Ask by person, status and time range.
+
+3
+00:00:09,000 --> 00:00:14,000
+Review matching tickets and search limits.
+
+4
+00:00:14,000 --> 00:00:19,000
+Creating a ticket? Supply missing fields.
+
+5
+00:00:19,000 --> 00:00:25,000
+Review the draft. Send its Confirm create command.
+
+6
+00:00:25,000 --> 00:00:30,000
+Save the new ticket ID and link.
+
+7
+00:00:30,000 --> 00:00:35,000
+Ask for ticket details using its ID.

@@ -16,12 +16,10 @@ import { BorderStyle, Document, Packer, Paragraph, ShadingType, TextRun } from '
 const SOURCE_TEMPLATE = 'docs/archer_template.docx';
 const OUTPUT = 'static/assets/docx/archer-response-template.docx';
 
-// Body styles mirror the per-response PDF export (ResponseMessage.svelte, .pdf-export-snapshot):
-// Helvetica/Arial 14px black text, plain bold headings, grey quote rule, light code panels.
-const FONT = 'Arial';
-const BLACK = '000000';
-const QUOTE_RULE = 'CCCCCC';
-const CODE_FILL = 'F6F8FA';
+const FONT = 'IBM Plex Sans';
+const BLACK = '161616';
+const QUOTE_RULE = '0F62FE';
+const CODE_FILL = 'F4F4F4';
 
 const heading = (size) => ({
 	run: { font: FONT, size, bold: true, color: BLACK },
@@ -30,6 +28,7 @@ const heading = (size) => ({
 
 const doc = new Document({
 	creator: 'Archer & Round',
+	features: { updateFields: true },
 	title: 'Archer & Round',
 	styles: {
 		default: {
@@ -37,13 +36,13 @@ const doc = new Document({
 				run: { font: FONT, size: 21, color: BLACK },
 				paragraph: { spacing: { before: 120, after: 120, line: 360 } }
 			},
-			heading1: heading(33),
-			heading2: heading(28),
-			heading3: heading(26),
-			heading4: heading(22),
+			heading1: heading(40),
+			heading2: heading(32),
+			heading3: heading(28),
+			heading4: heading(24),
 			heading5: heading(22),
 			heading6: heading(22),
-			hyperlink: { run: { color: '1A56DB', underline: {} } }
+			hyperlink: { run: { color: '0F62FE', underline: {} } }
 		},
 		paragraphStyles: [
 			{
@@ -51,7 +50,7 @@ const doc = new Document({
 				name: 'Archer Quote',
 				basedOn: 'Normal',
 				next: 'Normal',
-				run: { color: '333333' },
+				run: { color: '525252' },
 				paragraph: {
 					indent: { left: 200 },
 					border: { left: { style: BorderStyle.SINGLE, size: 18, color: QUOTE_RULE, space: 8 } }
@@ -62,7 +61,7 @@ const doc = new Document({
 				name: 'Archer Code',
 				basedOn: 'Normal',
 				next: 'Normal',
-				run: { font: 'Consolas', size: 18, color: BLACK },
+				run: { font: 'Courier New', size: 18, color: BLACK },
 				paragraph: {
 					spacing: { before: 120, after: 120, line: 276 },
 					shading: { type: ShadingType.CLEAR, fill: CODE_FILL, color: 'auto' },
@@ -95,6 +94,20 @@ for (const part of [
 ]) {
 	zip.file(part, await letterhead.file(part).async('uint8array'));
 }
+
+// A client report needs live page fields in Word, including when tables flow across pages.
+const footerXml = await zip.file('word/footer1.xml').async('string');
+zip.file(
+	'word/footer1.xml',
+	footerXml.replace(
+		'</w:ftr>',
+		'<w:p><w:pPr><w:jc w:val="right"/><w:spacing w:before="80" w:after="0"/></w:pPr>' +
+			'<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/><w:color w:val="525252"/></w:rPr><w:t xml:space="preserve">Page </w:t></w:r>' +
+			'<w:fldSimple w:instr="PAGE" w:dirty="true"><w:r><w:rPr><w:sz w:val="16"/></w:rPr><w:t>1</w:t></w:r></w:fldSimple>' +
+			'<w:r><w:rPr><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve"> / </w:t></w:r>' +
+			'<w:fldSimple w:instr="NUMPAGES" w:dirty="true"><w:r><w:rPr><w:sz w:val="16"/></w:rPr><w:t>1</w:t></w:r></w:fldSimple></w:p></w:ftr>'
+	)
+);
 
 // Some letterhead paragraphs only set w:after, so they would inherit the body's line
 // spacing and space-before from the styles above; pin them to compact spacing.

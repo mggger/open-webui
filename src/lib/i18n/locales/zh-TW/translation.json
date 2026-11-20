@@ -1,4 +1,12 @@
 {
+	"Organizing report content...": "正在整理報告內容…",
+	"Designing report layout...": "正在設計報告版式…",
+	"Writing report sections...": "正在撰寫報告章節…",
+	"Reviewing report content and format...": "正在審校報告內容與格式…",
+	"Rendering report diagrams...": "正在繪製報告圖表…",
+
+	"Preparing report...": "正在整理對話並產生專業報告…",
+	"Failed to generate report. Please try again.": "報告產生失敗，請重試。",
 	"- usage not recorded": "",
 	"- usage not recorded · * partial usage": "",
 	"-1 for no limit, or a positive integer for a specific limit": "-1 表示無限制，正整數表示特定限制",

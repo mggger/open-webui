@@ -1,4 +1,12 @@
 {
+	"Organizing report content...": "正在整理报告内容…",
+	"Designing report layout...": "正在设计报告版式…",
+	"Writing report sections...": "正在撰写报告章节…",
+	"Reviewing report content and format...": "正在审校报告内容与格式…",
+	"Rendering report diagrams...": "正在绘制报告图表…",
+
+	"Preparing report...": "正在整理对话并生成专业报告…",
+	"Failed to generate report. Please try again.": "报告生成失败，请重试。",
 	"- usage not recorded": "",
 	"- usage not recorded · * partial usage": "",
 	"-1 for no limit, or a positive integer for a specific limit": "-1 表示无限制，正整数表示具体限制额度",

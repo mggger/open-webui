@@ -427,33 +427,54 @@ export const chatCompletion = async (
 export const generateOpenAIChatCompletion = async (
 	token: string = '',
 	body: object,
-	url: string = `${WEBUI_BASE_URL}/api`
+	url: string = `${WEBUI_BASE_URL}/api`,
+	signal?: AbortSignal,
+	diagnostics?: { requestId: string }
 ) => {
-	let error = null;
-
-	const res = await fetch(`${url}/chat/completions`, {
-		method: 'POST',
-		headers: {
-			Authorization: `Bearer ${token}`,
-			'Content-Type': 'application/json'
-		},
-		credentials: 'include',
-		body: JSON.stringify(body)
-	})
-		.then(async (res) => {
-			if (!res.ok) throw await res.json();
-			return res.json();
-		})
-		.catch((err) => {
-			error = getErrorMessage(err);
-			return null;
+	try {
+		const res = await fetch(`${url}/chat/completions`, {
+			method: 'POST',
+			signal,
+			headers: {
+				Authorization: `Bearer ${token}`,
+				'Content-Type': 'application/json',
+				...(diagnostics ? { 'X-Report-Request-ID': diagnostics.requestId } : {})
+			},
+			credentials: 'include',
+			body: JSON.stringify(body)
 		});
-
-	if (error) {
-		throw error;
+		const raw = await res.text();
+		let data;
+		try {
+			data = JSON.parse(raw);
+		} catch {
+			throw Object.assign(
+				new Error(
+					res.ok
+						? 'Expected a JSON completion response but the server returned another format'
+						: `HTTP ${res.status}: ${raw.trim().startsWith('<') ? res.statusText || 'Non-JSON server error' : raw.slice(0, 500) || res.statusText}`
+				),
+				{
+					status: res.status,
+					code: 'INVALID_COMPLETION_RESPONSE',
+					requestId: res.headers.get('x-request-id') ?? diagnostics?.requestId
+				}
+			);
+		}
+		if (!res.ok)
+			throw Object.assign(
+				new Error(getErrorMessage(data, `HTTP ${res.status}: ${res.statusText}`)),
+				{
+					status: res.status,
+					code: 'COMPLETION_HTTP_ERROR',
+					requestId: res.headers.get('x-request-id') ?? diagnostics?.requestId
+				}
+			);
+		return data;
+	} catch (error) {
+		if (diagnostics) throw error;
+		throw getErrorMessage(error);
 	}
-
-	return res;
 };
 
 export const synthesizeOpenAISpeech = async (

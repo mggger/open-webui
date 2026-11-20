@@ -149,6 +149,7 @@ from open_webui.models.models import Models, normalize_model_tags
 from open_webui.models.groups import Groups, resolve_group_default_models
 from open_webui.models.users import Users
 from open_webui.routers import (
+    reports,
     apps,
     analytics,
     audio,
@@ -841,6 +842,7 @@ app.include_router(openai.router, prefix='/openai', tags=['openai'])
 
 app.include_router(pipelines.router, prefix='/api/v1/pipelines', tags=['pipelines'])
 app.include_router(tasks.router, prefix='/api/v1/tasks', tags=['tasks'])
+app.include_router(reports.router, prefix='/api/v1/reports', tags=['reports'])
 app.include_router(images.router, prefix='/api/v1/images', tags=['images'])
 
 app.include_router(audio.router, prefix='/api/v1/audio', tags=['audio'])

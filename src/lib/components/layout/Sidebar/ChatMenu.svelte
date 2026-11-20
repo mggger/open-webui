@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { getContext, tick } from 'svelte';
+	import { reportFailureDetails } from '$lib/utils/reportDiagnostics';
+	import { getContext } from 'svelte';
+	import { toast } from 'svelte-sonner';
 
 	import fileSaver from 'file-saver';
 	const { saveAs } = fileSaver;
@@ -14,7 +16,7 @@
 		getChatPinnedStatusById,
 		toggleChatPinnedStatusById
 	} from '$lib/apis/chats';
-	import { chats, folders, settings, theme, user, visibleControls } from '$lib/stores';
+	import { chats, folders, settings, user, visibleControls } from '$lib/stores';
 	import { createMessagesList } from '$lib/utils';
 	import { getOutputText } from '$lib/components/chat/Messages/structuredOutput';
 	import ArchiveBoxIcon from '$lib/components/icons/ArchiveBox.svelte';
@@ -22,14 +24,13 @@
 	import DownloadIcon from './icons/Download.svelte';
 	import EditPencilIcon from './icons/EditPencil.svelte';
 	import FolderIcon from './icons/Folder.svelte';
-	import Messages from '$lib/components/chat/Messages.svelte';
 	import PinIcon from './icons/Pin.svelte';
 	import PinSlashIcon from './icons/PinSlash.svelte';
 	import ShareIcon from './icons/Share.svelte';
 	import TrashIcon from './icons/Trash.svelte';
 	import ChatCheckIcon from '$lib/components/icons/ChatCheck.svelte';
 
-	const i18n = getContext('i18n');
+	const i18n = getContext<import('svelte/store').Writable<import('i18next').i18n>>('i18n');
 
 	export let shareHandler: Function;
 	export let moveChatHandler: Function;
@@ -50,7 +51,7 @@
 	let pinned = false;
 
 	let chat = null;
-	let showFullMessages = false;
+	let exportingPdf = false;
 
 	export let onPinChange: (chat: {
 		pinned: boolean;
@@ -92,209 +93,70 @@
 	};
 
 	const downloadPdf = async () => {
-		chat = await getChatById(localStorage.token, chatId);
-		if (!chat) {
-			return;
-		}
+		if (exportingPdf) return;
+		exportingPdf = true;
 
-		const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
-			import('jspdf'),
-			import('html2canvas-pro')
-		]);
+		try {
+			chat = await getChatById(localStorage.token, chatId);
+			if (!chat) {
+				return;
+			}
 
-		if ($settings?.stylizedPdfExport ?? true) {
-			showFullMessages = true;
-			await tick();
+			const title = chat.chat.title || 'Untitled conversation';
 
-			const containerElement = document.getElementById('full-messages-container');
-			if (containerElement) {
+			if ($settings?.stylizedPdfExport ?? true) {
+				const history = chat.chat.history;
+				const messages = createMessagesList(history, history.currentId);
+				const { downloadReportPdf } = await import('$lib/utils/exportReportPdf');
+				const { reportProgressLabel } = await import('$lib/utils/generateConversationReport');
+				const notification = toast.loading($i18n.t('Preparing report...'), {
+					duration: Infinity,
+					dismissable: false
+				});
 				try {
-					const isDarkMode = document.documentElement.classList.contains('dark');
-					const virtualWidth = 800; // px, fixed width for cloned element
-
-					// Clone and style
-					const clonedElement = containerElement.cloneNode(true);
-					clonedElement.classList.add('text-black');
-					clonedElement.classList.add('dark:text-white');
-					clonedElement.style.width = `${virtualWidth}px`;
-					clonedElement.style.position = 'absolute';
-					clonedElement.style.left = '-9999px';
-					clonedElement.style.height = 'auto';
-					document.body.appendChild(clonedElement);
-
-					// Override content-visibility so html2canvas can capture all messages
-					clonedElement.querySelectorAll('.message-virtualized').forEach((el) => {
-						el.style.contentVisibility = 'visible';
+					await downloadReportPdf(messages, {
+						title,
+						onProgress: (progress) =>
+							toast.loading(
+								reportProgressLabel(progress, (key) => $i18n.t(key)),
+								{ id: notification, duration: Infinity, dismissable: false }
+							)
 					});
-
-					// Let the browser compute layout for the cloned element
-					await new Promise((r) => requestAnimationFrame(r));
-
-					const pdf = new jsPDF('p', 'mm', 'a4');
-					const pageWidthMM = 210;
-					const pageHeightMM = 297;
-
-					const pagePixelHeight = Math.floor((virtualWidth * pageHeightMM) / pageWidthMM);
-					const rootTop = clonedElement.getBoundingClientRect().top;
-					const contentHeight = Math.ceil(clonedElement.getBoundingClientRect().height);
-
-					const blocks = [];
-					const trackedElements = new Set();
-					const collectBlocks = (element) => {
-						const children = Array.from(element.children);
-						const splittable =
-							children.length > 0 &&
-							(getComputedStyle(element).display === 'contents' ||
-								(element.getBoundingClientRect().height > pagePixelHeight / 4 &&
-									!Array.from(element.childNodes).some(
-										(childNode) =>
-											childNode.nodeType === Node.TEXT_NODE && childNode.textContent?.trim()
-									) &&
-									children.every(
-										(child) => !getComputedStyle(child).display.startsWith('inline')
-									)));
-
-						if (element !== clonedElement) trackedElements.add(element);
-
-						if (splittable) {
-							children.forEach(collectBlocks);
-						} else {
-							const { top, bottom } = element.getBoundingClientRect();
-							blocks.push({ element, top: top - rootTop, bottom: bottom - rootTop });
-						}
-					};
-					collectBlocks(clonedElement);
-
-					clonedElement.setAttribute('data-pdf-root', '');
-
-					let offsetY = 0;
-					let page = 0;
-
-					while (offsetY < contentHeight) {
-						const sliceHeight = Math.min(pagePixelHeight, contentHeight - offsetY);
-						const sliceBlocks = blocks.filter(
-							(block) => block.bottom > offsetY && block.top < offsetY + sliceHeight
-						);
-
-						const keptElements = new Set();
-						for (const { element } of sliceBlocks) {
-							for (
-								let current = element;
-								current && current !== clonedElement;
-								current = current.parentElement
-							) {
-								keptElements.add(current);
-							}
-						}
-
-						const anchor = sliceBlocks.find((block) => block.bottom > block.top);
-						anchor?.element.setAttribute('data-pdf-anchor', '');
-
-						const canvas = await html2canvas(clonedElement, {
-							backgroundColor: isDarkMode ? '#000' : '#fff',
-							useCORS: true,
-							logging: false,
-							scale: 2, // increase resolution
-							width: virtualWidth,
-							height: sliceHeight,
-							y: offsetY,
-							ignoreElements: (element) =>
-								(element.parentElement === document.body &&
-									element !== clonedElement &&
-									!['STYLE', 'LINK'].includes(element.tagName)) ||
-								(trackedElements.has(element) && !keptElements.has(element)),
-							onclone: (clonedDocument) => {
-								const clonedRoot = clonedDocument.querySelector('[data-pdf-root]');
-								const clonedAnchor = clonedDocument.querySelector('[data-pdf-anchor]');
-								if (!clonedRoot || !clonedAnchor) return;
-
-								const spacer = clonedDocument.createElement('div');
-								clonedRoot.prepend(spacer);
-
-								let spacerHeight = 0;
-								for (let pass = 0; pass < 2; pass++) {
-									spacerHeight +=
-										anchor.top -
-										(clonedAnchor.getBoundingClientRect().top -
-											clonedRoot.getBoundingClientRect().top);
-									spacer.style.height = `${spacerHeight}px`;
-								}
-							}
-						});
-
-						anchor?.element.removeAttribute('data-pdf-anchor');
-
-						const imgData = canvas.toDataURL('image/jpeg', 0.7);
-						const imgHeightMM = (sliceHeight * pageWidthMM) / virtualWidth;
-
-						if (page > 0) pdf.addPage();
-
-						if (isDarkMode) {
-							pdf.setFillColor(0, 0, 0);
-							pdf.rect(0, 0, pageWidthMM, pageHeightMM, 'F'); // black bg
-						}
-
-						pdf.addImage(imgData, 'JPEG', 0, 0, pageWidthMM, imgHeightMM);
-
-						offsetY += sliceHeight;
-						page++;
-					}
-
-					document.body.removeChild(clonedElement);
-
-					pdf.save(`chat-${chat.chat.title}.pdf`);
-
-					showFullMessages = false;
-				} catch (error) {
-					console.error('Error generating PDF', error);
+				} finally {
+					toast.dismiss(notification);
 				}
-			}
-		} else {
-			console.log('Downloading PDF');
+			} else {
+				const { default: jsPDF } = await import('jspdf');
+				const chatText = await getChatAsText(chat);
+				const pdfDoc = new jsPDF({ unit: 'mm', format: 'a4' });
+				const margin = 15;
+				const lineHeight = 5;
+				let cursorY = 20;
+				pdfDoc.setFontSize(9);
 
-			const chatText = await getChatAsText(chat);
-
-			const doc = new jsPDF();
-
-			// Margins
-			const left = 15;
-			const top = 20;
-			const right = 15;
-			const bottom = 20;
-
-			const pageWidth = doc.internal.pageSize.getWidth();
-			const pageHeight = doc.internal.pageSize.getHeight();
-			const usableWidth = pageWidth - left - right;
-			const usableHeight = pageHeight - top - bottom;
-
-			// Font size and line height
-			const fontSize = 8;
-			doc.setFontSize(fontSize);
-			const lineHeight = fontSize * 1; // adjust if needed
-
-			// Split the markdown into lines (handles \n)
-			const paragraphs = chatText.split('\n');
-
-			let y = top;
-
-			for (let paragraph of paragraphs) {
-				// Wrap each paragraph to fit the width
-				const lines = doc.splitTextToSize(paragraph, usableWidth);
-
-				for (let line of lines) {
-					// If the line would overflow the bottom, add a new page
-					if (y + lineHeight > pageHeight - bottom) {
-						doc.addPage();
-						y = top;
+				for (const paragraph of chatText.split('\n')) {
+					const lines = pdfDoc.splitTextToSize(paragraph, 180);
+					for (const lineText of lines) {
+						if (cursorY > 282) {
+							pdfDoc.addPage();
+							cursorY = 20;
+						}
+						pdfDoc.text(lineText, margin, cursorY);
+						cursorY += lineHeight;
 					}
-					doc.text(line, left, y);
-					y += lineHeight * 0.5;
+					cursorY += 2;
 				}
-				// Add empty line at paragraph breaks
-				y += lineHeight * 0.1;
-			}
 
-			doc.save(`chat-${chat.chat.title}.pdf`);
+				pdfDoc.save(`chat-${title}.pdf`);
+			}
+		} catch (error) {
+			toast.error($i18n.t('Failed to export PDF'), {
+				description: reportFailureDetails(error, 'export-pdf', localStorage.token),
+				duration: Infinity,
+				dismissable: true
+			});
+		} finally {
+			exportingPdf = false;
 		}
 	};
 
@@ -313,27 +175,6 @@
 		checkPinned();
 	}
 </script>
-
-{#if chat && showFullMessages}
-	<div class="hidden w-full h-full flex-col">
-		<div id="full-messages-container">
-			<Messages
-				className="h-full flex pt-4 pb-8 w-full"
-				chatId={`chat-preview-${chat?.id ?? ''}`}
-				user={$user}
-				readOnly={true}
-				history={chat.chat.history}
-				messages={chat.chat.messages}
-				autoScroll={true}
-				sendMessage={() => {}}
-				continueResponse={() => {}}
-				regenerateResponse={() => {}}
-				messagesCount={null}
-				editCodeBlock={false}
-			/>
-		</div>
-	</div>
-{/if}
 
 <Dropdown
 	closeOnSelect
@@ -404,6 +245,7 @@
 						role="menuitem"
 						draggable="false"
 						class="flex h-[1.6875rem] gap-2 items-center rounded-xl px-2 text-[0.8125rem] cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-900 select-none w-full"
+						disabled={exportingPdf}
 						on:click={() => {
 							downloadPdf();
 						}}

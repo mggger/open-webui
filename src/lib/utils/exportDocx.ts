@@ -1,4 +1,7 @@
 import fileSaver from 'file-saver';
+import { extractDocumentTitle, prepareDocumentMarkdown } from './exportReportPdfModel';
+import { reportColumnWeights, resolveReportDesign, type ReportLayout } from './reportLayout';
+import { renderReportDiagrams, type ReportDiagrams } from './reportDiagrams';
 const { saveAs } = fileSaver;
 
 // Built by scripts/build-docx-template.mjs: the Archer & Round letterhead (header,
@@ -7,24 +10,24 @@ const { saveAs } = fileSaver;
 // patch the response into its {{CONTENT}} placeholder.
 const RESPONSE_TEMPLATE_URL = '/assets/docx/archer-response-template.docx';
 
-// Mirrors the PDF export's table/code colours (.pdf-export-snapshot in ResponseMessage.svelte).
-const TABLE_RULE = 'CCCCCC';
-const TABLE_HEADER_FILL = 'F0F0F0';
+// Shared enterprise palette for PDF and editable Word output.
+const TABLE_RULE = 'E0E0E0';
+const TABLE_HEADER_FILL = 'E8F0FF';
 const INLINE_CODE_FILL = 'F4F4F4';
-const HR_RULE = 'DDDDDD';
+const HR_RULE = 'E0E0E0';
 
 // Formatting is applied directly to every paragraph and run (not only through the
 // template's styles) because some viewers, e.g. macOS Quick Look, ignore styles.xml.
-const FONT = 'Arial';
+const FONT = 'IBM Plex Sans';
 const BODY_SIZE = 21; // half-points (10.5pt, ~14px like the PDF)
-const BODY_COLOR = '000000';
-const CODE_FONT = 'Consolas';
-const CODE_FILL = 'F6F8FA';
-const QUOTE_RULE = 'CCCCCC';
+const BODY_COLOR = '161616';
+const CODE_FONT = 'Courier New';
+const CODE_FILL = 'F4F4F4';
+const QUOTE_RULE = '0F62FE';
 // A4 width minus the template's 1224-twip side margins.
 const CONTENT_WIDTH = 11906 - 2 * 1224;
 const BODY_SPACING = { before: 120, after: 120, line: 360 };
-const HEADING_SIZE: Record<number, number> = { 1: 33, 2: 28, 3: 26, 4: 22, 5: 22, 6: 22 };
+const HEADING_SIZE: Record<number, number> = { 1: 40, 2: 32, 3: 28, 4: 24, 5: 22, 6: 22 };
 
 const BULLET_LIST = 'archer-bullet';
 const NUMBERED_LIST = 'archer-number';
@@ -39,11 +42,20 @@ type RunSpec = {
 	color?: string;
 };
 
-type ConvertContext = { docxLib: any; nextListInstance: number };
+type ConvertContext = {
+	docxLib: any;
+	nextListInstance: number;
+	layout?: ReportLayout;
+	diagrams: ReportDiagrams;
+	sectionIndex: number;
+};
 
 export type MessageDocxMeta = {
 	// Stored as the document's title property.
 	title?: string;
+	reportDate?: string;
+	layout?: ReportLayout;
+	diagrams?: ReportDiagrams;
 };
 
 // marked's lexer HTML-escapes text/codespan token content (e.g. "&" -> "&amp;")
@@ -131,7 +143,7 @@ const runsToChildren = (runs: RunSpec[], docxLib: any, base: Record<string, any>
 			};
 			if (run.color) runOptions.color = run.color;
 			if (run.href) {
-				runOptions.color = '1A56DB';
+				runOptions.color = '0F62FE';
 				runOptions.underline = {};
 			}
 			if (run.code) {
@@ -178,8 +190,16 @@ const listItemRuns = (item: any): { runs: RunSpec[]; nested: any[]; blocks: any[
 };
 
 const tableBlock = (token: any, ctx: ConvertContext) => {
-	const { Paragraph, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, AlignmentType } =
-		ctx.docxLib;
+	const {
+		Paragraph,
+		Table,
+		TableRow,
+		TableCell,
+		WidthType,
+		BorderStyle,
+		ShadingType,
+		AlignmentType
+	} = ctx.docxLib;
 
 	const rule = { style: BorderStyle.SINGLE, size: 4, color: TABLE_RULE };
 	const alignOf = (idx: number) =>
@@ -190,24 +210,23 @@ const tableBlock = (token: any, ctx: ConvertContext) => {
 				: AlignmentType.LEFT;
 
 	// Explicit twip widths as well as the percentage, for viewers that ignore percentages.
-	const columnCount = Math.max(1, token.header?.length ?? 1);
-	const columnWidth = Math.floor(CONTENT_WIDTH / columnCount);
+	const weights = reportColumnWeights(
+		[token.header, ...(token.rows ?? [])].map((row: any[]) => row.map((c: any) => c.text ?? ''))
+	);
+	const columnWidths = weights.map((weight) => Math.floor(CONTENT_WIDTH * weight));
 
-	const cell = (tokens: any[], idx: number, header: boolean) =>
+	const cell = (tokens: any[], idx: number, header: boolean, rowIndex = 0) =>
 		new TableCell({
-			width: { size: columnWidth, type: WidthType.DXA },
+			width: { size: columnWidths[idx], type: WidthType.DXA },
 			shading: header
 				? { type: ShadingType.CLEAR, fill: TABLE_HEADER_FILL, color: 'auto' }
-				: undefined,
-			margins: { top: 80, bottom: 80, left: 120, right: 120 },
+				: { type: ShadingType.CLEAR, fill: rowIndex % 2 ? 'F4F4F4' : 'FFFFFF', color: 'auto' },
+			margins: { top: 120, bottom: 120, left: 140, right: 140 },
 			children: [
 				new Paragraph({
 					alignment: alignOf(idx),
 					spacing: { before: 0, after: 0, line: 260 },
-					children: runsToChildren(
-						flattenInline(tokens, header ? { bold: true } : {}),
-						ctx.docxLib
-					)
+					children: runsToChildren(flattenInline(tokens, header ? { bold: true } : {}), ctx.docxLib)
 				})
 			]
 		});
@@ -215,7 +234,7 @@ const tableBlock = (token: any, ctx: ConvertContext) => {
 	return [
 		new Table({
 			width: { size: 100, type: WidthType.PERCENTAGE },
-			columnWidths: Array(columnCount).fill(columnWidth),
+			columnWidths,
 			borders: {
 				top: rule,
 				bottom: rule,
@@ -230,9 +249,10 @@ const tableBlock = (token: any, ctx: ConvertContext) => {
 					children: (token.header ?? []).map((c: any, idx: number) => cell(c.tokens, idx, true))
 				}),
 				...(token.rows ?? []).map(
-					(row: any[]) =>
+					(row: any[], rowIndex: number) =>
 						new TableRow({
-							children: row.map((c, idx) => cell(c.tokens, idx, false))
+							cantSplit: true,
+							children: row.map((c, idx) => cell(c.tokens, idx, false, rowIndex))
 						})
 				)
 			]
@@ -242,7 +262,7 @@ const tableBlock = (token: any, ctx: ConvertContext) => {
 };
 
 // Walks marked's block-level tokens and builds the matching docx Paragraph/Table nodes.
-// Fonts, sizes and colours come from the template's styles; only structure is set here.
+// Direct formatting keeps the typography consistent in viewers that ignore template styles.
 const blocksToDocx = (tokens: any[], ctx: ConvertContext, listLevel = 0): any[] => {
 	const { Paragraph, TextRun, HeadingLevel, BorderStyle, ShadingType } = ctx.docxLib;
 
@@ -256,6 +276,9 @@ const blocksToDocx = (tokens: any[], ctx: ConvertContext, listLevel = 0): any[] 
 	};
 
 	const out: any[] = [];
+	const design = resolveReportDesign(ctx.layout);
+	const paragraphSpacing =
+		design.density === 'compact' ? { before: 60, after: 120, line: 300 } : BODY_SPACING;
 
 	const pushList = (token: any, level: number) => {
 		const ordered = Boolean(token.ordered);
@@ -279,9 +302,26 @@ const blocksToDocx = (tokens: any[], ctx: ConvertContext, listLevel = 0): any[] 
 		});
 	};
 
-	tokens.forEach((token) => {
+	tokens.forEach((token, tokenIndex) => {
+		const nextToken = tokens.slice(tokenIndex + 1).find((next) => next.type !== 'space');
+		const caption =
+			token.type === 'paragraph' &&
+			token.tokens?.length === 1 &&
+			token.tokens[0].type === 'em' &&
+			(nextToken?.type === 'table' || (nextToken?.type === 'code' && nextToken.lang === 'mermaid'));
 		switch (token.type) {
 			case 'heading':
+				if (token.depth === 2) {
+					ctx.sectionIndex++;
+					if (!design.showSectionHeadings) break;
+				}
+				if (
+					token.depth === 2 &&
+					ctx.sectionIndex > 0 &&
+					design.documentType !== 'note' &&
+					ctx.layout?.sections[ctx.sectionIndex]?.startOnNewPage
+				)
+					out.push(new Paragraph({ children: [new ctx.docxLib.PageBreak()] }));
 				out.push(
 					new Paragraph({
 						heading: headingLevel[token.depth] ?? HeadingLevel.HEADING_6,
@@ -289,6 +329,7 @@ const blocksToDocx = (tokens: any[], ctx: ConvertContext, listLevel = 0): any[] 
 						spacing: { before: 240, after: 120, line: 300 },
 						children: runsToChildren(flattenInline(token.tokens), ctx.docxLib, {
 							bold: true,
+							color: BODY_COLOR,
 							size: HEADING_SIZE[token.depth] ?? 22
 						})
 					})
@@ -298,8 +339,18 @@ const blocksToDocx = (tokens: any[], ctx: ConvertContext, listLevel = 0): any[] 
 			case 'paragraph':
 				out.push(
 					new Paragraph({
-						spacing: BODY_SPACING,
-						children: runsToChildren(flattenInline(token.tokens), ctx.docxLib)
+						spacing: caption ? { before: 180, after: 100, line: 260 } : paragraphSpacing,
+						widowControl: true,
+						keepNext: caption,
+						indent:
+							!caption && ctx.layout?.sections[ctx.sectionIndex]?.paragraphStyle === 'indented'
+								? { firstLine: 420 }
+								: undefined,
+						children: runsToChildren(
+							flattenInline(token.tokens),
+							ctx.docxLib,
+							caption ? { size: 18, color: '525252' } : {}
+						)
 					})
 				);
 				break;
@@ -316,7 +367,7 @@ const blocksToDocx = (tokens: any[], ctx: ConvertContext, listLevel = 0): any[] 
 									left: { style: BorderStyle.SINGLE, size: 18, color: QUOTE_RULE, space: 8 }
 								},
 								children: runsToChildren(flattenInline(inner.tokens ?? []), ctx.docxLib, {
-									color: '333333'
+									color: '525252'
 								})
 							})
 						);
@@ -331,6 +382,34 @@ const blocksToDocx = (tokens: any[], ctx: ConvertContext, listLevel = 0): any[] 
 				break;
 
 			case 'code': {
+				if (token.lang?.trim().toLowerCase() === 'mermaid') {
+					const figure = ctx.diagrams[token.text];
+					if (!figure) throw new Error('Missing rendered report diagram');
+					const scale = Math.min(CONTENT_WIDTH / 15 / figure.width, 580 / figure.height, 1);
+					out.push(
+						new Paragraph({
+							alignment: ctx.docxLib.AlignmentType.CENTER,
+							keepLines: true,
+							spacing: { before: 120, after: 240 },
+							children: [
+								new ctx.docxLib.ImageRun({
+									type: 'png',
+									data: figure.dataUrl,
+									transformation: {
+										width: Math.round(figure.width * scale),
+										height: Math.round(figure.height * scale)
+									},
+									altText: {
+										title: ctx.layout?.sections[ctx.sectionIndex]?.title ?? 'Diagram',
+										description: 'Diagram',
+										name: 'Figure'
+									}
+								})
+							]
+						})
+					);
+					break;
+				}
 				const children: any[] = [];
 				const codeRun = { font: CODE_FONT, size: 18, color: BODY_COLOR };
 				const codeEdge = { style: BorderStyle.SINGLE, size: 4, color: CODE_FILL, space: 6 };
@@ -437,7 +516,7 @@ const cleanTitle = (title?: string) =>
 	(title ?? '')
 		.replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, '')
 		.replace(/\s+/g, ' ')
-		.trim() || 'Response';
+		.trim() || 'Document';
 
 type DocxOutputType = 'blob' | 'nodebuffer' | 'arraybuffer';
 
@@ -449,10 +528,131 @@ export const buildMessageDocx = async <T extends DocxOutputType = 'blob'>(
 	outputType: T = 'blob' as T
 ) => {
 	const [docxLib, { marked }] = await Promise.all([import('docx'), import('marked')]);
-	const { patchDocument, PatchType, Paragraph } = docxLib;
+	const { patchDocument, PatchType, Paragraph, TextRun, PageBreak } = docxLib;
 
-	const ctx: ConvertContext = { docxLib, nextListInstance: 1 };
-	const bodyChildren = blocksToDocx(marked.lexer(markdown ?? ''), ctx);
+	const documentMarkdown = prepareDocumentMarkdown(markdown ?? '');
+	const diagrams = meta.diagrams ?? (await renderReportDiagrams(documentMarkdown));
+	const ctx: ConvertContext = {
+		docxLib,
+		nextListInstance: 1,
+		layout: meta.layout,
+		diagrams,
+		sectionIndex: -1
+	};
+	const tokens = marked.lexer(documentMarkdown);
+	const firstSection = tokens.findIndex((token) => token.type === 'heading' && token.depth === 2);
+	const bodyChildren = blocksToDocx(
+		meta.layout && firstSection >= 0 ? tokens.slice(firstSection) : tokens,
+		ctx
+	);
+
+	const design = resolveReportDesign(meta.layout);
+	if (meta.reportDate && design.coverPage) {
+		bodyChildren.unshift(
+			new Paragraph({
+				spacing: { before: 1000, after: 600 },
+				children: [
+					new TextRun({ text: 'ARCHER & ROUND / REPORT', font: FONT, size: 22, color: '0F62FE' })
+				]
+			}),
+			new Paragraph({
+				spacing: { after: 500 },
+				children: [
+					new TextRun({ text: cleanTitle(meta.title), font: FONT, size: 64, color: BODY_COLOR })
+				]
+			}),
+			new Paragraph({
+				children: [
+					new TextRun({ text: meta.layout?.subtitle ?? '', font: FONT, size: 28, color: '525252' })
+				],
+				spacing: { after: 600 }
+			}),
+			new Paragraph({
+				spacing: { before: 300, after: 300 },
+				children: [new TextRun({ text: meta.reportDate, font: FONT, size: 22, color: '525252' })]
+			}),
+			...(meta.layout && design.contents
+				? [
+						...(meta.layout.sections.length > 4
+							? [new Paragraph({ children: [new PageBreak()] })]
+							: []),
+						new Paragraph({
+							spacing: { before: 600, after: 240 },
+							children: [
+								new TextRun({
+									text: /[\u3400-\u9fff]/.test(meta.title ?? '') ? '报告导览' : 'IN THIS REPORT',
+									font: FONT,
+									size: 20,
+									color: '0F62FE',
+									bold: true
+								})
+							]
+						}),
+						...meta.layout.sections.map(
+							(section, index) =>
+								new Paragraph({
+									spacing: { after: 160 },
+									children: [
+										new TextRun({
+											text: `${design.numberedSections ? String(index + 1).padStart(2, '0') + '   ' : ''}${section.title}`,
+											font: FONT,
+											size: 24,
+											color: BODY_COLOR
+										})
+									]
+								})
+						)
+					]
+				: []),
+			new Paragraph({ children: [new PageBreak()] })
+		);
+	}
+
+	if (meta.layout && !design.coverPage) {
+		const intro = [
+			new Paragraph({
+				keepNext: true,
+				spacing: { before: 120, after: 240 },
+				children: [
+					new TextRun({
+						text: cleanTitle(meta.title ?? meta.layout.title),
+						font: FONT,
+						size: 40,
+						bold: true,
+						color: BODY_COLOR
+					})
+				]
+			})
+		];
+		if (meta.layout.subtitle)
+			intro.push(
+				new Paragraph({
+					keepNext: true,
+					spacing: { after: 240 },
+					children: [
+						new TextRun({ text: meta.layout.subtitle, font: FONT, size: 24, color: '525252' })
+					]
+				})
+			);
+		if (design.contents)
+			intro.push(
+				...meta.layout.sections.map(
+					(section, index) =>
+						new Paragraph({
+							spacing: { after: 100 },
+							children: [
+								new TextRun({
+									text: `${design.numberedSections ? String(index + 1).padStart(2, '0') + '   ' : ''}${section.title}`,
+									font: FONT,
+									size: BODY_SIZE,
+									color: BODY_COLOR
+								})
+							]
+						})
+				)
+			);
+		bodyChildren.unshift(...intro);
+	}
 
 	const templateRes = await fetch(RESPONSE_TEMPLATE_URL);
 	if (!templateRes.ok) {
@@ -463,7 +663,7 @@ export const buildMessageDocx = async <T extends DocxOutputType = 'blob'>(
 		outputType,
 		data: await templateRes.arrayBuffer(),
 		numbering: listNumbering(docxLib),
-		properties: { title: cleanTitle(meta.title) },
+		properties: { title: cleanTitle(extractDocumentTitle(documentMarkdown) || meta.title) },
 		patches: {
 			CONTENT: {
 				type: PatchType.DOCUMENT,

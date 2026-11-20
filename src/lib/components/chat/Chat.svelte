@@ -376,6 +376,7 @@
 	let fileSearchEnabled = false;
 	let fileSearchDirectory = '';
 	let codeInterpreterEnabled = false;
+	let manageEngineEnabled = false;
 	let webSearchActive = false;
 	let showWebSearchConfirm = false;
 	let pendingWebSearchPrompt: string | null = null;
@@ -851,6 +852,7 @@
 			fileSearchDirectory = input.fileSearchDirectory ?? '';
 			imageGenerationEnabled = input.imageGenerationEnabled ?? false;
 			codeInterpreterEnabled = input.codeInterpreterEnabled ?? false;
+			manageEngineEnabled = input.manageEngineEnabled ?? false;
 			// Ignore approval modes in older drafts. Restoring input must not overwrite chat
 			// parameters or invoke the change handler, which can save settings and approve tools.
 			return true;
@@ -939,6 +941,7 @@
 		fileSearchDirectory = '';
 		imageGenerationEnabled = false;
 		codeInterpreterEnabled = false;
+		manageEngineEnabled = false;
 
 		if (chatIdProp) {
 			await loadChat(signal);
@@ -984,6 +987,7 @@
 		fileSearchDirectory = '';
 		imageGenerationEnabled = false;
 		codeInterpreterEnabled = false;
+		manageEngineEnabled = false;
 		prompt = '';
 		messageInput?.setText('');
 		await chatId.set('');
@@ -1058,6 +1062,8 @@
 		fileSearchDirectory = '';
 		imageGenerationEnabled = false;
 		codeInterpreterEnabled = false;
+		// Manage Engine is a conversation choice, not a model default.
+		// Preserve it when applying defaults after restoring the input draft.
 
 		if (selectedModelIds.filter((id) => id).length > 0) {
 			await setDefaults();
@@ -2075,6 +2081,7 @@
 				fileSearchDirectory = '';
 				imageGenerationEnabled = false;
 				codeInterpreterEnabled = false;
+				manageEngineEnabled = false;
 
 				await restoreChatInput(storageChatInput);
 			}
@@ -2878,6 +2885,7 @@
 		autoScroll = true;
 
 		// resetInput() must stay last: the selected model's defaults override the draft's selection.
+		manageEngineEnabled = false;
 		const chatInputPrompt = (await restoreChatInput(sessionStorage.getItem('chat-input')))
 			? prompt
 			: null;
@@ -4631,10 +4639,11 @@
 	};
 
 	const getFeatures = () => {
-		let features = {};
+		let features = { manage_engine: manageEngineEnabled };
 
 		if ($config?.features)
 			features = {
+				...features,
 				voice: ($showCallOverlay && callMode === 'current') || !!bridge?.connected,
 				image_generation:
 					$config?.features?.enable_image_generation &&
@@ -5367,6 +5376,7 @@
 		webSearchEnabled,
 		deepSearchEnabled,
 		codeInterpreterEnabled,
+		manageEngineEnabled,
 		fileSearchEnabled,
 		fileSearchDirectory
 	});
@@ -5885,6 +5895,7 @@
 										bind:selectedSkillIds
 										bind:selectedFilterIds
 										bind:imageGenerationEnabled
+										bind:manageEngineEnabled
 										bind:codeInterpreterEnabled
 										{pendingOAuthTools}
 										{oauthRedirectHandler}
@@ -5989,6 +6000,7 @@
 										bind:selectedSkillIds
 										bind:selectedFilterIds
 										bind:imageGenerationEnabled
+										bind:manageEngineEnabled
 										bind:codeInterpreterEnabled
 										{pendingOAuthTools}
 										{oauthRedirectHandler}
@@ -6061,6 +6073,7 @@
 									bind:selectedSkillIds
 									bind:selectedFilterIds
 									bind:imageGenerationEnabled
+									bind:manageEngineEnabled
 									bind:codeInterpreterEnabled
 									bind:webSearchEnabled
 									bind:deepSearchEnabled

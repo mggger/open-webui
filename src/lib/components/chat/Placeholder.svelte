@@ -67,6 +67,7 @@
 	export let showCommands = false;
 
 	export let imageGenerationEnabled = false;
+	export let manageEngineEnabled = false;
 	export let codeInterpreterEnabled = false;
 	export let webSearchEnabled = false;
 	export let toolApprovalMode = 'full';
@@ -280,6 +281,7 @@
 						bind:selectedSkillIds
 						bind:selectedFilterIds
 						bind:imageGenerationEnabled
+						bind:manageEngineEnabled
 						bind:codeInterpreterEnabled
 						bind:webSearchEnabled
 						bind:deepSearchEnabled

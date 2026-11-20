@@ -257,6 +257,7 @@
 	export let webSearchEnabled = false;
 	export let deepSearchEnabled = false;
 	export let codeInterpreterEnabled = false;
+	export let manageEngineEnabled = false;
 	export let toolApprovalMode = 'full';
 	export let onToolApprovalModeChange: Function = () => {};
 
@@ -357,6 +358,7 @@
 		webSearchEnabled,
 		deepSearchEnabled,
 		codeInterpreterEnabled,
+		manageEngineEnabled,
 		fileSearchEnabled,
 		fileSearchDirectory
 	};
@@ -2724,7 +2726,7 @@
 
 										<!-- Retired menu label: keep its translation. {$i18n.t('Integrations')} -->
 										<svelte:fragment slot="integrations">
-											{#if showWebSearchButton || showDeepSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || showSkillsButton || showFileSearchButton || (toggleFilters && toggleFilters.length > 0)}
+											{#if $_user?.role === 'admin' || $config?.features?.enable_manage_engine || showWebSearchButton || showDeepSearchButton || showImageGenerationButton || showCodeInterpreterButton || showToolsButton || showSkillsButton || showFileSearchButton || (toggleFilters && toggleFilters.length > 0)}
 												<IntegrationsMenu
 													bind:show={showInputMenu}
 													bind:tab={inputMenuTab}
@@ -2743,6 +2745,7 @@
 													{fileSearchEnabled}
 													onFileSearchClick={openFileSearchPicker}
 													bind:imageGenerationEnabled
+													bind:manageEngineEnabled
 													bind:codeInterpreterEnabled
 													oauthRedirectHandler={(tool: {
 														id: string;
@@ -2761,6 +2764,25 @@
 											{/if}
 										</svelte:fragment>
 									</InputMenu>
+
+									{#if manageEngineEnabled}
+										<Tooltip content={'Manage Engine is on. Click to turn off.'} placement="top">
+											<button
+												type="button"
+												aria-label={'Manage Engine is on. Click to turn off.'}
+												aria-pressed={manageEngineEnabled}
+												on:click={() => (manageEngineEnabled = false)}
+												class="ml-1 inline-flex shrink-0 items-center gap-1.5 rounded-full border border-sky-200/70 bg-sky-50 px-2 py-1 text-[11px] font-medium leading-4 text-sky-700 transition-colors hover:bg-sky-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 dark:border-sky-500/30 dark:bg-sky-400/10 dark:text-sky-300 dark:hover:bg-sky-400/20"
+											>
+												<span
+													aria-hidden="true"
+													class="size-1.5 shrink-0 rounded-full bg-emerald-500"
+												></span>
+												<span>Manage Engine</span>
+												<XMark className="size-3" strokeWidth="1.75" />
+											</button>
+										</Tooltip>
+									{/if}
 
 									<div
 										aria-hidden="true"

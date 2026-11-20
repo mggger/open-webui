@@ -1375,6 +1375,7 @@
 	"Failed to delete webhook": "",
 	"Failed to disconnect": "",
 	"Failed to download image": "",
+	"Failed to export DOCX": "",
 	"Failed to extract content from the file: {{error}}": "",
 	"Failed to extract content from the file.": "",
 	"Failed to fetch models": "",
@@ -4619,6 +4620,7 @@
 	"Width": "",
 	"Wikipedia": "",
 	"Won": "",
+	"Word document (.docx)": "",
 	"Work": "Work",
 	"Working directory": "",
 	"Working Directory": "",
@@ -4687,5 +4689,9 @@
 	"YouTube": "",
 	"YouTube video player": "",
 	"Zoom in": "",
-	"Zoom out": ""
+	"Zoom out": "",
+	"Enable Manage Engine": "Enable Manage Engine",
+	"Admins only": "Admins only",
+	"Enable Manage Engine in the chat + menu to query tickets using your configured model.": "Enable Manage Engine in the chat + menu to query tickets using your configured model.",
+	"Manage Engine is on. Click to turn off.": "Manage Engine is on. Click to turn off."
 }

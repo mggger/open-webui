@@ -4675,5 +4675,14 @@
 	"YouTube": "YouTube",
 	"YouTube video player": "YouTube 视频播放器",
 	"Zoom in": "放大",
-	"Zoom out": "缩小"
+	"Zoom out": "缩小",
+	"Enable Manage Engine": "启用 Manage Engine",
+	"Admins only": "仅管理员可用",
+	"API Endpoint": "API 地址",
+	"Timezone": "时区",
+	"Verify SSL Certificate": "验证 SSL 证书",
+	"Save & Test Connection": "保存并测试连接",
+	"(saved — leave blank to keep)": "（已保存，留空保持不变）",
+	"Enable Manage Engine in the chat + menu to query tickets using your configured model.": "在聊天的 + 菜单中开启 Manage Engine，即可使用已配置的模型查询工单。",
+	"Manage Engine is on. Click to turn off.": "Manage Engine 已开启，点击关闭。"
 }

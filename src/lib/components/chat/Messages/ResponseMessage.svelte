@@ -235,6 +235,7 @@
 	let loadingSpeech = false;
 	let speakAbort: AbortController | null = null;
 	let exportingPdf = false;
+	let exportingDocx = false;
 
 	let showRateComment = false;
 
@@ -963,6 +964,27 @@
 		exportingPdf = false;
 	};
 
+	const downloadResponseDocx = async () => {
+		if (exportingDocx) return;
+		exportingDocx = true;
+
+		try {
+			const title = ($chatTitle ?? '').trim() || 'response';
+			const safeFileName = sanitizeFileName(title);
+			const content = getOutputText(message.output) || removeAllDetails(message.content ?? '');
+
+			const { downloadMessageAsDocx } = await import('$lib/utils/exportDocx');
+			await downloadMessageAsDocx(content, `${safeFileName}-response`, {
+				title: $chatTitle ?? ''
+			});
+		} catch (error) {
+			console.error('Error generating DOCX', error);
+			toast.error($i18n.t('Failed to export DOCX'));
+		}
+
+		exportingDocx = false;
+	};
+
 	$: if (!edit) {
 		(async () => {
 			await tick();
@@ -1512,6 +1534,41 @@
 												stroke-linecap="round"
 												stroke-linejoin="round"
 												d="M19.5 14.25V9.621a1.5 1.5 0 0 0-.439-1.06l-4.122-4.122A1.5 1.5 0 0 0 13.879 4H8.25A2.25 2.25 0 0 0 6 6.25v11.5A2.25 2.25 0 0 0 8.25 20h7.5A2.25 2.25 0 0 0 18 17.75M12 11.25v5.25m0 0 2.25-2.25M12 16.5l-2.25-2.25"
+											/>
+										</svg>
+									</button>
+								</Tooltip>
+
+								<Tooltip content={$i18n.t('Word document (.docx)')} placement="bottom">
+									<button
+										aria-label={$i18n.t('Word document (.docx)')}
+										class="{isLastMessage || ($settings?.highContrastMode ?? false)
+											? 'visible'
+											: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition disabled:cursor-progress disabled:opacity-60"
+										on:click={() => {
+											downloadResponseDocx();
+										}}
+										disabled={exportingDocx}
+									>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											fill="none"
+											viewBox="0 0 24 24"
+											stroke-width="2.3"
+											stroke="currentColor"
+											class="w-4 h-4"
+											aria-hidden="true"
+										>
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												d="M19.5 14.25V9.621a1.5 1.5 0 0 0-.439-1.06l-4.122-4.122A1.5 1.5 0 0 0 13.879 4H8.25A2.25 2.25 0 0 0 6 6.25v11.5A2.25 2.25 0 0 0 8.25 20h7.5A2.25 2.25 0 0 0 18 17.75V14.25"
+											/>
+											<path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4v4.5h4.5" />
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												d="M9 13.5h.75a1.125 1.125 0 0 1 0 2.25H9m0-2.25v4.5m3-4.5h.75a1.5 1.5 0 0 1 1.5 1.5v1.5a1.5 1.5 0 0 1-1.5 1.5H12v-4.5Zm4.125 0L15 18m0 0-1.125-4.5"
 											/>
 										</svg>
 									</button>

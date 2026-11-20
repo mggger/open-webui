@@ -2054,6 +2054,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             form_data['model'] = selected_model_id
             metadata['selected_model_id'] = selected_model_id
 
+    manage_engine_enabled = bool((form_data.get('features') or metadata.get('features') or {}).get('manage_engine'))
     payload_tools = form_data.get('tools', None)  # snapshot before filters
     form_data = apply_params_to_form_data(form_data, model)
     log.debug('form_data: %s', form_data)
@@ -2074,7 +2075,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         and (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('builtin_tools', True)
     )
     metadata['include_file_context'] = bool(
-        chat and chat.user_id == user.id and payload_tools is None and use_builtin_tools
+        not manage_engine_enabled and chat and chat.user_id == user.id and payload_tools is None and use_builtin_tools
     )
 
     if is_saved_chat_id(chat_id) and user_message_id:
@@ -2138,6 +2139,27 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
     if regeneration_prompt:
         form_data['messages'].append({'role': 'user', 'content': regeneration_prompt})
+
+    # This is an exclusive retrieval mode. Return before folder/model knowledge,
+    # generic tools, memory, web search, and file retrieval can rewrite the query.
+    if manage_engine_enabled:
+        from open_webui.utils.manage_engine_chat import prepare_ticket_answer
+        from open_webui.utils.manage_engine import ManageEngineError
+
+        form_data['messages'] = sanitize_tool_pairs(process_messages_with_output(
+            form_data.get('messages', []), reasoning_format=get_reasoning_format(model),
+            include_file_context=False,
+        ))
+        try:
+            form_data = await prepare_ticket_answer(
+                request, form_data, metadata, user, await get_event_emitter(metadata)
+            )
+        except ManageEngineError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            log.exception('Manage Engine chat query failed')
+            raise HTTPException(status_code=502, detail='Manage Engine request failed. Check the service connection and model configuration.') from exc
+        return normalize_messages_for_model(form_data), metadata, [], False
 
     filter_functions = (
         await get_filter_functions(request, model, metadata.get('filter_ids', [])) if ENABLE_FUNCTIONS else []

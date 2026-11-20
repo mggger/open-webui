@@ -64,6 +64,7 @@
 	import AdminPipelines from '$lib/components/admin/Settings/Pipelines.svelte';
 	import AdminDatabase from '$lib/components/admin/Settings/Database.svelte';
 	import AdminDeepSearch from '$lib/components/admin/Settings/DeepSearch.svelte';
+	import AdminManageEngine from '$lib/components/admin/Settings/ManageEngine.svelte';
 	import AdminVtiger from '$lib/components/admin/Settings/Vtiger.svelte';
 	import AdminBrain from '$lib/components/admin/Settings/Brain.svelte';
 	import CommandLine from '../icons/CommandLine.svelte';
@@ -182,6 +183,7 @@
 		'admin:web': $i18n.t('Tools'),
 		'admin:deep-search': $i18n.t('Tools'),
 		'admin:vtiger': $i18n.t('Tools'),
+		'admin:manage-engine': $i18n.t('Tools'),
 		'admin:brain': $i18n.t('Tools'),
 		'admin:code-execution': $i18n.t('Tools'),
 		'admin:pipelines': $i18n.t('Tools'),
@@ -370,6 +372,12 @@
 			id: 'admin:deep-search',
 			titleKey: 'Deep Search',
 			title: $i18n.t('Deep Search'),
+			searchPrefixes: []
+		},
+		{
+			id: 'admin:manage-engine',
+			titleKey: 'Manage Engine',
+			title: 'Manage Engine',
 			searchPrefixes: []
 		},
 		{
@@ -1016,6 +1024,8 @@
 				<AdminWebSearch saveHandler={adminConfigSaveHandler} />
 			{:else if selectedTab === 'admin:deep-search'}
 				<AdminDeepSearch saveHandler={adminConfigSaveHandler} />
+			{:else if selectedTab === 'admin:manage-engine'}
+				<AdminManageEngine saveHandler={adminConfigSaveHandler} />
 			{:else if selectedTab === 'admin:vtiger'}
 				<AdminVtiger saveHandler={adminConfigSaveHandler} />
 			{:else if selectedTab === 'admin:brain'}

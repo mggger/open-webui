@@ -46,6 +46,9 @@ from open_webui.models.groups import Groups
 from open_webui.models.tools import Tools
 from open_webui.models.users import UserModel
 from open_webui.tools.builtin import (
+    search_manage_engine_tickets,
+    get_manage_engine_ticket,
+    _manage_engine_allowed,
     add_memory,
     ask_user,
     calculate_timestamp,
@@ -825,6 +828,9 @@ async def get_builtin_tools(
                 delete_memory,
             ]
         )
+
+    if features.get('manage_engine') and not extra_params.get('__manage_engine_retrieved__') and await _manage_engine_allowed(user):
+        builtin_functions.extend([search_manage_engine_tickets, get_manage_engine_ticket])
 
     # Add web search tools if builtin category enabled AND enabled globally AND model has web_search capability
     if (

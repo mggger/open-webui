@@ -190,6 +190,7 @@ from open_webui.routers import (
     users,
     utils,
     vtiger,
+    manage_engine,
 )
 from open_webui.routers.retrieval import (
     get_ef,
@@ -848,6 +849,7 @@ app.include_router(deep_search.router, prefix='/api/v1/deep-search', tags=['deep
 app.include_router(big_events.router, prefix='/api/v1/big-events', tags=['big-events'])
 app.include_router(file_search.router, prefix='/api/v1/file-search', tags=['file-search'])
 app.include_router(vtiger.router, prefix='/api/v1/vtiger', tags=['vtiger'])
+app.include_router(manage_engine.router, prefix='/api/v1/manage_engine', tags=['manage_engine'])
 app.include_router(brain.router, prefix='/api/v1/brain', tags=['brain'])
 
 app.include_router(configs.router, prefix='/api/v1/configs', tags=['configs'])
@@ -1728,7 +1730,10 @@ async def chat_completion(
                 if paused:
                     return {'status': True, 'chat_id': metadata.get('chat_id'), 'paused': True}
 
-                response = await chat_completion_handler(request, form_data, user)
+                response = await chat_completion_handler(
+                    request, form_data, user,
+                    bypass_system_prompt=bool(metadata.get('manage_engine_retrieved')),
+                )
 
                 if isinstance(response, Response) and response.status_code >= 400:
                     error_detail = get_response_error_detail(response)
@@ -2443,6 +2448,9 @@ async def get_app_config(request: Request):
         'web.search.enable',
         'web.search.confirmation.enable',
         'web.search.confirmation.content',
+        'manage_engine.endpoint',
+        'manage_engine.api_key',
+        'manage_engine.admin_only',
         'code_execution.enable',
         'code_interpreter.enable',
         'image_generation.enable',
@@ -2562,6 +2570,11 @@ async def get_app_config(request: Request):
                     'enable_deep_search': config.get('deep_search.enable'),
                     'enable_web_search_confirmation': config.get('web.search.confirmation.enable'),
                     'web_search_confirmation_content': config.get('web.search.confirmation.content'),
+                    'enable_manage_engine': bool(
+                        config.get('manage_engine.endpoint')
+                        and config.get('manage_engine.api_key')
+                        and (not config.get('manage_engine.admin_only') or user.role == 'admin')
+                    ),
                     'enable_code_execution': config.get('code_execution.enable'),
                     'enable_code_interpreter': config.get('code_interpreter.enable'),
                     'enable_image_generation': config.get('image_generation.enable'),

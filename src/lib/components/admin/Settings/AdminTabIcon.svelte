@@ -94,6 +94,8 @@
 	<Database {className} {strokeWidth} />
 {:else if id === 'deep-search'}
 	<Search {className} {strokeWidth} />
+{:else if id === 'manage-engine'}
+	<QueueList {className} {strokeWidth} />
 {:else if id === 'vtiger'}
 	<Users {className} {strokeWidth} />
 {:else if id === 'brain'}

@@ -83,6 +83,7 @@
 	export let imageGenerationEnabled = false;
 	export let showCodeInterpreterButton = false;
 	export let codeInterpreterEnabled = false;
+	export let manageEngineEnabled = false;
 	export let fileSearchEnabled = false;
 	export let fileSearchConfig: FileSearchConfig | null = null;
 	export let onFileSearchClick: Function = () => {};
@@ -556,6 +557,20 @@
 			</Tooltip>
 		{/if}
 
+		{#if $user?.role === 'admin' || $config?.features?.enable_manage_engine}
+			<button
+				type="button"
+				class="flex w-full justify-between gap-2 items-center h-[1.6875rem] px-2 text-[0.8125rem] rounded-xl hover:bg-gray-50/40 dark:hover:bg-gray-800/40"
+				role="menuitemcheckbox"
+				aria-checked={manageEngineEnabled}
+				on:click={() => {
+					manageEngineEnabled = !manageEngineEnabled;
+				}}
+			>
+				<span class="flex gap-2 items-center"><Wrench className="size-3.5" />Manage Engine</span>
+				<div inert><Switch state={manageEngineEnabled} /></div>
+			</button>
+		{/if}
 		{#if showCodeInterpreterButton}
 			<Tooltip content={$i18n.t('Execute code for analysis')} placement="top-start">
 				<button

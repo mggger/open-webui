@@ -1235,6 +1235,14 @@ VTIGER_USERNAME = os.getenv('VTIGER_USERNAME', '')
 VTIGER_ACCESS_KEY = os.getenv('VTIGER_ACCESS_KEY', '')
 VTIGER_VERIFY_SSL = os.getenv('VTIGER_VERIFY_SSL', 'True').lower() == 'true'
 
+# ManageEngine ServiceDesk Plus (chat ticket tools; editable in Admin Settings > ManageEngine)
+
+MANAGE_ENGINE_ENDPOINT = os.getenv('MANAGE_ENGINE_ENDPOINT', '')
+MANAGE_ENGINE_API_KEY = os.getenv('MANAGE_ENGINE_API_KEY', '')
+MANAGE_ENGINE_VERIFY_SSL = os.getenv('MANAGE_ENGINE_VERIFY_SSL', 'True').lower() == 'true'
+MANAGE_ENGINE_TIMEZONE = os.getenv('MANAGE_ENGINE_TIMEZONE', 'Australia/Sydney')
+MANAGE_ENGINE_ADMIN_ONLY = os.getenv('MANAGE_ENGINE_ADMIN_ONLY', 'False').lower() == 'true'
+
 # Deep Search
 
 ENABLE_DEEP_SEARCH = os.getenv('ENABLE_DEEP_SEARCH', 'False').lower() == 'true'
@@ -3123,6 +3131,11 @@ DEFAULT_CONFIG = {
     'vtiger.username': VTIGER_USERNAME,
     'vtiger.access_key': VTIGER_ACCESS_KEY,
     'vtiger.verify_ssl': VTIGER_VERIFY_SSL,
+    'manage_engine.endpoint': MANAGE_ENGINE_ENDPOINT,
+    'manage_engine.api_key': MANAGE_ENGINE_API_KEY,
+    'manage_engine.verify_ssl': MANAGE_ENGINE_VERIFY_SSL,
+    'manage_engine.timezone': MANAGE_ENGINE_TIMEZONE,
+    'manage_engine.admin_only': MANAGE_ENGINE_ADMIN_ONLY,
     'deep_search.enable': ENABLE_DEEP_SEARCH,
     'deep_search.max_iterations': DEEP_SEARCH_MAX_ITERATIONS,
     'web.search.ollama_cloud_api_key': OLLAMA_CLOUD_WEB_SEARCH_API_KEY,

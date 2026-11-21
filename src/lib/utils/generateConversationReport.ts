@@ -3,7 +3,6 @@ import {
 	constrainReportPlan,
 	parseReportBodies,
 	reportQualityIssues,
-	reportSourceAllowance,
 	type ReportBudget
 } from './reportQuality';
 import { makeReportError, recordReportDiagnostic, reportErrorMessage } from './reportDiagnostics';
@@ -50,7 +49,7 @@ export const reportProgressLabel = (
 	);
 };
 const reports = new Map<string, Promise<ConversationReport>>();
-const PIPELINE_VERSION = 'coherent-document-v6';
+const PIPELINE_VERSION = 'coherent-document-v7-soft-length';
 
 const DIAGRAM_RULES =
 	'Use exactly ONE diagram declaration, on the first line only. Flowchart nodes must have unique IDs and bracketed labels, for example A["Submit Ticket"] --> B["Support Group"]. Never use bare quoted strings as nodes. Put each edge on its own line. Never concatenate diagram declarations. Example labels are syntax examples, not source facts.';
@@ -185,7 +184,6 @@ export const generateConversationReport = async (
 		const sourceContext =
 			data.length <= 24000 ? JSON.stringify({ original: messages, evidence }) : evidence;
 		progress({ stage: 'designing' });
-		const sourceAllowance = reportSourceAllowance(messages);
 		let budget: ReportBudget | undefined;
 		let layout: ReportLayout | undefined;
 		let feedback = '';
@@ -194,8 +192,8 @@ export const generateConversationReport = async (
 		for (let attempt = 0; attempt < 3; attempt++) {
 			const plan = await complete(
 				`ART DIRECTOR: Read the ENTIRE supplied conversation/context, including earlier requirements and later corrections, and design the deliverable around its actual purpose and substantive content. First decide whether it is a concise note, a focused brief, or a full report. Length alone is not the decision: a long repetitive conversation can need only a note; a short but complex architecture question can justify a brief and a diagram.
-For a short answer, clarification, simple decision or small amount of material, choose note: usually one body section, no cover, contents, numbering or executive summary. Keep it to the necessary paragraphs or list; never expand a few facts into a multi-page report. Choose brief for a focused explanation, comparison or recommendation with a few useful sections and an inline title. Choose report only when the material supports substantial analysis across multiple topics. Cover page, contents and executive summary are OPTIONAL design choices, not a fixed template. Use the fewest non-overlapping sections that cover the evidence, usually 1–6 for an ordinary SOP. A routine SOP is normally a brief, not a full report. Each fact and visual must have exactly one owning section. Do not place a complete SOP under Purpose, Procedure, or Revision History. Do not recreate earlier drafts as separate sections. Never force tables, callouts, diagrams, risks, actions or conclusions into content that does not need them. Select compact density for short operational notes and comfortable density for extended reading. The section purposes must specify the useful medium (prose/list/table/diagram), the appropriate depth, and what to omit. Titles are client-facing, not production notes, without numeric prefixes. Plan diagrams only for evidenced relationships, tables only for comparisons, and actions only when useful. Use block paragraphs for briefs and technical explanations; indented paragraphs only for sustained narrative. Start a section on a new page only for a major chapter, never every short section. Allowed values: documentType = note, brief or report; density = compact or comfortable; presentation = narrative, comparison, process, architecture or actions; paragraphStyle = block or indented. Choose ONE value for each field. Budget the ENTIRE deliverable, not each section: choose maxWords (words or CJK characters) and maxDiagrams. A simple SOP usually needs 600–1200 words and at most one useful workflow diagram; a short answer needs far less. These are ceilings, never quotas. The source-based maximum is ${sourceAllowance}; use fewer words whenever possible. Allocate diagrams only to process/architecture sections. Specify distinct scope and exclusions for every section. Return ONLY JSON matching this example structure:
-{"title":"specific report title","subtitle":"optional scope statement or empty string","budget":{"maxWords":600,"maxDiagrams":0},"design":{"documentType":"note","coverPage":false,"contents":false,"numberedSections":false,"showSectionHeadings":false,"density":"compact"},"sections":[{"title":"section title","purpose":"what to convey and which evidence/visuals to use","presentation":"narrative","paragraphStyle":"block","startOnNewPage":false}]}
+For a short answer, clarification, simple decision or small amount of material, choose note: usually one body section, no cover, contents, numbering or executive summary. Keep it to the necessary paragraphs or list; never expand a few facts into a multi-page report. Choose brief for a focused explanation, comparison or recommendation with a few useful sections and an inline title. Choose report only when the material supports substantial analysis across multiple topics. Cover page, contents and executive summary are OPTIONAL design choices, not a fixed template. Use the fewest non-overlapping sections that cover the evidence, usually 1–6 for an ordinary SOP. A routine SOP is normally a brief, not a full report. Each fact and visual must have exactly one owning section. Do not place a complete SOP under Purpose, Procedure, or Revision History. Do not recreate earlier drafts as separate sections. Never force tables, callouts, diagrams, risks, actions or conclusions into content that does not need them. Select compact density for short operational notes and comfortable density for extended reading. The section purposes must specify the useful medium (prose/list/table/diagram), the appropriate depth, and what to omit. Titles are client-facing, not production notes, without numeric prefixes. Plan diagrams only for evidenced relationships, tables only for comparisons, and actions only when useful. Use block paragraphs for briefs and technical explanations; indented paragraphs only for sustained narrative. Start a section on a new page only for a major chapter, never every short section. Allowed values: documentType = note, brief or report; density = compact or comfortable; presentation = narrative, comparison, process, architecture or actions; paragraphStyle = block or indented. Choose ONE value for each field. Plan the ENTIRE deliverable, not each section: choose targetWords as a rough editorial estimate and maxDiagrams. There is no automatic word or page limit. Infer the necessary depth from the actual subject, user requirements and evidence, not source length or chat turn count. A short request can require a detailed document. Completeness takes priority over the estimate; do not omit supported requirements to fit it. Respect an explicit length request from the user. Keep simple content concise by removing repetition and unsupported expansion, not by cutting useful facts. Allocate diagrams only to process/architecture sections. Specify distinct scope and exclusions for every section. Return ONLY JSON matching this example structure:
+{"title":"specific report title","subtitle":"optional scope statement or empty string","budget":{"targetWords":600,"maxDiagrams":0},"design":{"documentType":"note","coverPage":false,"contents":false,"numberedSections":false,"showSectionHeadings":false,"density":"compact"},"sections":[{"title":"section title","purpose":"what to convey and which evidence/visuals to use","presentation":"narrative","paragraphStyle":"block","startOnNewPage":false}]}
 ${feedback}`,
 				previousPlan
 					? JSON.stringify({ source: sourceContext, previousPlan, correction: feedback })
@@ -203,7 +201,7 @@ ${feedback}`,
 			);
 			try {
 				const candidate = parseReportLayout(plan);
-				budget = constrainReportPlan(candidate, sourceAllowance);
+				budget = constrainReportPlan(candidate);
 				layout = candidate;
 				break;
 			} catch (error) {
@@ -242,7 +240,7 @@ ${feedback}`,
 			progress({ stage: attempt ? 'reviewing' : 'writing' });
 			const result = await complete(
 				`DOCUMENT EDITOR: Compose ONE coherent client document from the entire source and outline. Return ONLY JSON {"sections":[{"body":"Markdown section body"}]} with exactly one body per outline section, in order. Never return a complete document inside a section. Do not repeat the document title or outline section headings in any body; use ### only for distinct subsections. The renderer supplies the title and section headings. Apply latest corrections; do not concatenate previous versions. Every substantive fact, table and workflow has ONE primary location. Do not repeat scope, roles, procedure, metrics or revision history across sections. Use short references when another section needs the same information. A revision-history section contains only evidenced revision records, never the SOP itself. Do not invent records or expand the source with generic best practices.
-The budget is for ALL sections combined: at most ${budget.maxWords} words or CJK characters, including tables and diagram labels. Use less when sufficient. At most ${budget.maxDiagrams} diagrams total, only in sections with these zero-based indices: ${JSON.stringify(budget.diagramSections)}. Each diagram must communicate a different subject. Do not duplicate an entire workflow in both a table and a diagram. Avoid redundant takeaway boxes and summaries. Plan the whole document before writing it. Silently check factual fidelity and global repetition before returning it.
+The estimated length for ALL sections combined is ${budget.targetWords} words or CJK characters. This is a planning estimate, NOT a maximum or minimum. Use whatever length is necessary to preserve supported facts, conditions and user requirements; do not pad or truncate to match the estimate. A user-specified length takes precedence. Exceeding this estimate is not a quality failure. At most ${budget.maxDiagrams} diagrams total, only in sections with these zero-based indices: ${JSON.stringify(budget.diagramSections)}. Each diagram must communicate a different subject. Do not duplicate an entire workflow in both a table and a diagram. Avoid redundant takeaway boxes and summaries. Plan the whole document before writing it. Silently check factual fidelity and global repetition before returning it.
 ${PRINT_RULES} ${DIAGRAM_RULES}
 ${attempt ? 'Repair the specific quality issues supplied below across the ENTIRE document. Preserve unique facts, conditions, roles and source links; condense repetition instead of dropping material requirements.' : ''}`,
 				JSON.stringify({ ...documentContext, ...(attempt ? { previousDraft, issues } : {}) })

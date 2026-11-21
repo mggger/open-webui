@@ -71,8 +71,8 @@ describe('conversation report generation', () => {
 		expect(complete).toHaveBeenCalledTimes(2);
 		expect(first.markdown).toContain('## 02 Architecture');
 		expect(first.layout?.design).toMatchObject({
-			documentType: 'brief',
-			coverPage: false,
+			documentType: 'report',
+			coverPage: true,
 			contents: false
 		});
 		expect(stages).toEqual(['organizing', 'designing', 'writing']);
@@ -287,5 +287,91 @@ describe('whole-document repair', () => {
 			)
 		).rejects.toMatchObject({ diagnostic: { code: 'DOCUMENT_QUALITY' } });
 		expect(complete).toHaveBeenCalledTimes(4);
+	});
+});
+
+it('exports above the planner estimate without extra shortening calls', async () => {
+	const body = Array.from({ length: 1600 }, (_, i) => 'requirement' + i).join(' ');
+	complete
+		.mockResolvedValueOnce(
+			response(JSON.stringify({ ...layout, budget: { targetWords: 800, maxDiagrams: 0 } }))
+		)
+		.mockResolvedValueOnce(documentResponse(body, 'Separate closing detail.'));
+	const report = await generateConversationReport(
+		[{ role: 'assistant', model: 'internal', content: 'Prepare a detailed document.' }],
+		'Full detail',
+		'soft-length'
+	);
+	expect(report.markdown).toContain('requirement1599');
+	expect(complete).toHaveBeenCalledTimes(2);
+	expect((complete.mock.calls[1][1] as any).messages[0].content).toContain('NOT a maximum');
+});
+
+describe('ten-thousand-character documents', () => {
+	it('preserves 10000 Chinese characters despite an 800-character estimate', async () => {
+		const body = Array.from(
+			{ length: 100 },
+			(_, i) => `${i}:` + String.fromCodePoint(0x4e00 + i).repeat(100)
+		).join('\n\n');
+		complete
+			.mockResolvedValueOnce(
+				response(
+					JSON.stringify({
+						...layout,
+						sections: [layout.sections[0]],
+						budget: { targetWords: 800, maxDiagrams: 0 }
+					})
+				)
+			)
+			.mockResolvedValueOnce(documentResponse(body));
+		const report = await generateConversationReport(
+			[{ role: 'assistant', model: 'internal', content: body }],
+			'Long report',
+			'ten-thousand'
+		);
+		expect(report.markdown).toContain(body);
+		expect(report.markdown.match(/\p{Script=Han}/gu)).toHaveLength(10000);
+		expect(complete).toHaveBeenCalledTimes(2);
+	});
+	it('reports upstream truncation rather than exporting an incomplete long document', async () => {
+		complete
+			.mockResolvedValueOnce(response(JSON.stringify(layout)))
+			.mockResolvedValueOnce({
+				choices: [{ finish_reason: 'length', message: { content: '{"sections":[' } }]
+			});
+		await expect(
+			generateConversationReport(
+				[{ role: 'assistant', model: 'internal', content: '长篇内容'.repeat(2500) }],
+				'Truncation',
+				'long-truncated'
+			)
+		).rejects.toMatchObject({ diagnostic: { stage: 'writing', code: 'COMPLETION_TRUNCATED' } });
+	});
+	it('reports model timeout separately from document length', async () => {
+		vi.useFakeTimers();
+		try {
+			complete
+				.mockResolvedValueOnce(response(JSON.stringify(layout)))
+				.mockImplementationOnce(
+					async (_token, _body, _url, signal) =>
+						new Promise((_, reject) =>
+							signal!.addEventListener('abort', () => reject(new Error('Aborted')))
+						)
+				);
+			const pending = generateConversationReport(
+				[{ role: 'assistant', model: 'internal', content: 'Timeout source' }],
+				'Timeout',
+				'long-timeout'
+			);
+			const assertion = expect(pending).rejects.toMatchObject({
+				diagnostic: { stage: 'writing', code: 'REQUEST_TIMEOUT' }
+			});
+			// SHA-256 uses a real asynchronous job before request timers are installed.
+			await vi.waitFor(() => expect(complete).toHaveBeenCalledTimes(2));
+			await vi.advanceTimersByTimeAsync(180000);
+			await assertion;
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

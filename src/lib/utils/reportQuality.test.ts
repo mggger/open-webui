@@ -3,7 +3,6 @@ import {
 	constrainReportPlan,
 	parseReportBodies,
 	reportQualityIssues,
-	reportSourceAllowance,
 	reportWordCount
 } from './reportQuality';
 import type { ReportLayout } from './reportLayout';
@@ -29,17 +28,14 @@ const outline = (): ReportLayout => ({
 const graph = 'flowchart TB\nA["Submit"] --> B["Triage"]\nB --> C["Resolve"]\nC --> D["Close"]';
 const fence = (source: string) => '```mermaid\n' + source + '\n```';
 describe('document-wide editorial controls', () => {
-	it('does not grant extra length for repeated drafts', () => {
-		const content = Array.from({ length: 600 }, (_, i) => 'detail' + i).join(' ');
-		expect(reportSourceAllowance([{ content }, { content }, { content }])).toBe(
-			reportSourceAllowance([{ content }])
-		);
+	it('counts CJK characters for repetition checks', () => {
 		expect(reportWordCount('这是简短说明')).toBe(6);
 	});
 	it('removes packaging and chapter breaks from a routine SOP and assigns one diagram owner', () => {
 		const layout = outline();
-		const budget = constrainReportPlan(layout, 900);
-		expect(budget).toEqual({ maxWords: 900, maxDiagrams: 1, diagramSections: [0] });
+		layout.design!.documentType = 'brief';
+		const budget = constrainReportPlan(layout);
+		expect(budget).toEqual({ targetWords: 900, maxDiagrams: 1, diagramSections: [0] });
 		expect(layout.design).toMatchObject({
 			documentType: 'brief',
 			coverPage: false,
@@ -47,13 +43,15 @@ describe('document-wide editorial controls', () => {
 		});
 		expect(layout.sections.every((section) => !section.startOnNewPage)).toBe(true);
 	});
-	it('rejects oversized outlines instead of slicing away their requirements', () => {
+	it('preserves a detailed outline regardless of its length estimate', () => {
 		const layout = outline();
 		layout.sections = Array.from({ length: 12 }, (_, i) => ({
 			...layout.sections[0],
 			title: 'Topic ' + i
 		}));
-		expect(() => constrainReportPlan(layout, 350)).toThrow('Merge overlapping topics');
+		layout.budget = { targetWords: 350, maxDiagrams: 0 };
+		expect(() => constrainReportPlan(layout)).not.toThrow();
+		expect(layout.design!.documentType).toBe('report');
 		expect(layout.sections).toHaveLength(12);
 	});
 	it('detects the three repeated workflows even when node IDs change', () => {
@@ -63,7 +61,7 @@ describe('document-wide editorial controls', () => {
 			.replace(/\bC\b/g, 'Y')
 			.replace(/\bD\b/g, 'Z');
 		const issues = reportQualityIssues([fence(graph), fence(renamed), fence(graph)], outline(), {
-			maxWords: 1000,
+			targetWords: 1000,
 			maxDiagrams: 1,
 			diagramSections: [1]
 		});
@@ -76,18 +74,18 @@ describe('document-wide editorial controls', () => {
 		const issues = reportQualityIssues(
 			['### Purpose\n\n' + text, text, '## Procedure\n\nSteps'],
 			outline(),
-			{ maxWords: 1000, maxDiagrams: 0, diagramSections: [] }
+			{ targetWords: 1000, maxDiagrams: 0, diagramSections: [] }
 		);
 		expect(issues.some((issue) => issue.includes('outline heading'))).toBe(true);
 		expect(issues.some((issue) => issue.includes('repeat substantial content'))).toBe(true);
 	});
-	it('counts repeated diagrams inside one section and rejects over-budget content', () => {
+	it('counts repeated diagrams without rejecting content above its length estimate', () => {
 		const issues = reportQualityIssues(
 			[fence(graph) + '\n\n' + fence(graph), 'word '.repeat(100), 'Records'],
 			outline(),
-			{ maxWords: 80, maxDiagrams: 1, diagramSections: [0] }
+			{ targetWords: 80, maxDiagrams: 1, diagramSections: [0] }
 		);
-		expect(issues.some((issue) => issue.includes('maximum is 80'))).toBe(true);
+		expect(issues.some((issue) => issue.includes('maximum is'))).toBe(false);
 		expect(issues.some((issue) => issue.includes('found 2'))).toBe(true);
 	});
 	it('preserves distinct conditional instructions and allows a concise complete document', () => {
@@ -97,10 +95,25 @@ describe('document-wide editorial controls', () => {
 			'Version 1.0: initial issue.'
 		];
 		expect(
-			reportQualityIssues(bodies, outline(), { maxWords: 300, maxDiagrams: 0, diagramSections: [] })
+			reportQualityIssues(bodies, outline(), {
+				targetWords: 300,
+				maxDiagrams: 0,
+				diagramSections: []
+			})
 		).toEqual([]);
 		expect(
 			parseReportBodies(JSON.stringify({ sections: bodies.map((body) => ({ body })) }), outline())
 		).toEqual(bodies);
 	});
+});
+
+it('accepts non-repetitive content far beyond an 800-word estimate', () => {
+	const body = Array.from({ length: 1600 }, (_, i) => 'requirement' + i).join(' ');
+	expect(
+		reportQualityIssues([body], outline(), {
+			targetWords: 800,
+			maxDiagrams: 0,
+			diagramSections: []
+		})
+	).toEqual([]);
 });

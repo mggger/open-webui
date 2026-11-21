@@ -16,7 +16,7 @@ export type ReportDesign = {
 };
 export type ReportLayout = {
 	design?: ReportDesign;
-	budget?: { maxWords: number; maxDiagrams: number };
+	budget?: { targetWords: number; maxDiagrams: number };
 	title: string;
 	subtitle: string;
 	sections: ReportSectionLayout[];
@@ -70,12 +70,10 @@ export const parseReportLayout = (text: string): ReportLayout => {
 	const design = value.design;
 	if (value.budget !== undefined) {
 		requireField(
-			Number.isInteger(value.budget?.maxWords) &&
-				value.budget.maxWords >= 80 &&
-				value.budget.maxWords <= 12000,
-			'layout.budget.maxWords',
-			'an integer from 80 to 12000',
-			value.budget?.maxWords
+			Number.isSafeInteger(value.budget?.targetWords) && value.budget.targetWords > 0,
+			'layout.budget.targetWords',
+			'a positive integer estimate (not a word limit)',
+			value.budget?.targetWords
 		);
 		requireField(
 			Number.isInteger(value.budget?.maxDiagrams) &&
@@ -144,7 +142,7 @@ export const parseReportLayout = (text: string): ReportLayout => {
 	}
 	return {
 		...(value.budget
-			? { budget: { maxWords: value.budget.maxWords, maxDiagrams: value.budget.maxDiagrams } }
+			? { budget: { targetWords: value.budget.targetWords, maxDiagrams: value.budget.maxDiagrams } }
 			: {}),
 		design: resolveReportDesign(value),
 		title: plainHeading(value.title, 160),
